@@ -47,13 +47,17 @@ class gpnn:
 		if config['out_size'] != 0:
 			if self.input_img.shape[0] > config['out_size']:
 				self.input_img = rescale(self.input_img, config['out_size'] / self.input_img.shape[0], multichannel=True)
-
+		self.saliency = np.random.random(self.input_img.shape)
+		assert self.saliency.max() <= 1
+		assert self.saliency.min() >= 0
 		# pyramids
 		pyramid_depth = np.log(min(self.input_img.shape[:2]) / min(self.COARSE_DIM)) / np.log(self.R)
 		self.add_base_level = True if np.ceil(pyramid_depth) > pyramid_depth else False
 		pyramid_depth = int(np.ceil(pyramid_depth))
 		self.x_pyramid = list(
 			tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+		self.saliency_pyramid = list(
+			tuple(pyramid_gaussian(self.saliency, pyramid_depth, downscale=self.R, multichannel=True)))			
 		if self.add_base_level is True:
 			self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
 		self.y_pyramid = [0] * (pyramid_depth + 1)
