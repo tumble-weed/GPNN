@@ -4,7 +4,7 @@ from skimage.transform.pyramids import pyramid_gaussian
 from skimage.transform import rescale, resize
 from torch.nn.functional import fold, unfold
 from .utils import *
-
+tensor_to_numpy = lambda t:t.detach().cpu().numpy()
 
 class gpnn:
 	def __init__(self, config):
@@ -123,7 +123,12 @@ class gpnn:
 		else:
 			values[mask] = values[~mask][NNs]
 			# O = values[NNs]  # replace_NNs(values, NNs)
+		
+		# y = combine_patches(values, patch_size, stride, x_scaled.shape)
 		y = combine_patches(values, patch_size, stride, x_scaled.shape)
+		assert y.ndim == 4
+		y = y.permute(0,2,3,1)[0]
+		y = tensor_to_numpy(y)
 		return y
 
 	def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True):
@@ -163,7 +168,7 @@ def compute_distances(queries, keys):
 		dist_mat[i] = torch.mean((queries[i] - keys) ** 2, dim=(1, 2, 3))
 	return dist_mat
 
-
+'''
 def combine_patches(O, patch_size, stride, img_shape):
 	channels = 3
 	O = O.permute(1, 0, 2, 3).unsqueeze(0)
@@ -179,3 +184,34 @@ def combine_patches(O, patch_size, stride, img_shape):
 
 	divisor[divisor == 0] = 1.0
 	return (combined / divisor).squeeze(dim=0).permute(1, 2, 0).cpu().numpy()
+'''
+def combine_patches(O, patch_size, stride, img_shape):
+    assert len(patch_size) == 2
+    assert len(O.shape) == 6
+    assert O.shape[-2:] == patch_size
+    O = O.permute((0,2,3,1,4,5))
+    O = O.contiguous()
+    O = O.view(-1,*O.shape[-3:])
+    # O.shape == (-1,channels,patch_size,patch_size)
+    channels = 3
+    O = O.permute(1, 0, 2, 3).unsqueeze(0) # chan,batch_size,patch_size,patch_size
+    patches = O.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
+        .permute(0, 1, 3, 2) \
+        .contiguous().view(1, channels * patch_size[0] * patch_size[0], -1)
+    
+    # batch_size,chan,Ypatch_size,-1
+    # batch_size,chan,Xpatch_size,Ypatch_size
+    #  -> 1, channels*Xpatch_size*Ypatch_size, H*W
+    # chan,batch_size,patch_size,patch_size
+    combined = fold(patches, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+
+    # normal fold matrix
+    input_ones = torch.ones((1, img_shape[2], img_shape[0], img_shape[1]), dtype=O.dtype, device=device)
+    divisor = unfold(input_ones, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0))
+    divisor = fold(divisor, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+
+    divisor[divisor == 0] = 1.0
+    combined =  (combined / divisor).squeeze(dim=0).permute(1, 2, 0)
+    # convert from hwc to bchw format
+    combined = combined.permute(2,0,1)[None,...]
+    return combined
