@@ -56,6 +56,7 @@ class gpnn:
 		pyramid_depth = int(np.ceil(pyramid_depth))
 		self.x_pyramid = list(
 			tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+		assert False,'we need to represent saliency pyramid using kornia'
 		self.saliency_pyramid = list(
 			tuple(pyramid_gaussian(self.saliency, pyramid_depth, downscale=self.R, multichannel=True)))			
 		if self.add_base_level is True:
