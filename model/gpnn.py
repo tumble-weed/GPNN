@@ -108,6 +108,7 @@ class gpnn:
 			return self.y_pyramid[0]
 
 	def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
+		assert False,'not implemented for saliency'
 		queries = extract_patches(y_scaled, patch_size, stride)
 		keys = extract_patches(x_scaled, patch_size, stride)
 		values = extract_patches(x, patch_size, stride)
@@ -131,11 +132,15 @@ class gpnn:
 		y = tensor_to_numpy(y)
 		return y
 
-	def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True):
+	def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,saliency=None):
+		assert x.ndim == 3
+		assert x_scaled.ndim == 3
 		queries = extract_patches(y_scaled, patch_size, stride)
 		keys = extract_patches(x_scaled, patch_size, stride)
 		values = extract_patches(x, patch_size, stride)
+		saliency_values = extract_patches(saliency, patch_size, stride)
 		if mask is not None:
+			assert False,'not compatible with saliency'
 			queries = queries[mask]
 			keys = keys[~mask]
 		queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0], -1)).cpu().numpy(), dtype='float32')
@@ -147,11 +152,19 @@ class gpnn:
 			self.index.add(keys_flat)
 		D, I = self.index.search(queries_flat, 1)
 		if mask is not None:
+			assert False,'not compatible with saliency'
 			values[mask] = values[~mask][I.T]
 		else:
 			values = values[I.T]
+			saliency_values = saliency_values[I.T]
 			#O = values[I.T]
+		x = torch.tensor(x,device=values.device)
+		x_scaled = torch.tensor(x_scaled,device=values.device)
+		x = x.permute(2,0,1)[None,...]
+		x_scaled = x_scaled.permute(2,0,1)[None,...]
 		y = combine_patches(values, patch_size, stride, x_scaled.shape)
+		y_saliency = combine_patches(values, patch_size, stride, x_scaled.shape)
+		print('view y');import pdb;pdb.set_trace()
 		return y
 
 
@@ -186,6 +199,7 @@ def combine_patches(O, patch_size, stride, img_shape):
 	return (combined / divisor).squeeze(dim=0).permute(1, 2, 0).cpu().numpy()
 '''
 def combine_patches(O, patch_size, stride, img_shape):
+	assert img_shape.__len__() == 4
     assert len(patch_size) == 2
     assert len(O.shape) == 6
     assert O.shape[-2:] == patch_size
