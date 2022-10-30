@@ -5,7 +5,8 @@ from skimage.transform import rescale, resize
 from torch.nn.functional import fold, unfold
 from .utils import *
 tensor_to_numpy = lambda t:t.detach().cpu().numpy()
-
+# import kornia.geometry.transform
+import model.kornia_utils
 class gpnn:
 	def __init__(self, config):
 		# general settings
@@ -56,9 +57,14 @@ class gpnn:
 		pyramid_depth = int(np.ceil(pyramid_depth))
 		self.x_pyramid = list(
 			tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+		'''
 		assert False,'we need to represent saliency pyramid using kornia'
 		self.saliency_pyramid = list(
-			tuple(pyramid_gaussian(self.saliency, pyramid_depth, downscale=self.R, multichannel=True)))			
+			tuple(pyramid_gaussian(self.saliency, pyramid_depth, downscale=self.R, multichannel=True)))
+
+		'''
+		self.saliency_pyramid = model.kornia_utils(self.saliency, pyramid_depth,downscale=self.R)
+				
 		if self.add_base_level is True:
 			self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
 		self.y_pyramid = [0] * (pyramid_depth + 1)
