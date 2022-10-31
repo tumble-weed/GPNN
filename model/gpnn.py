@@ -176,7 +176,7 @@ class gpnn:
         x_scaled = x_scaled.permute(2,0,1)[None,...]
         y = combine_patches(values, patch_size, stride, x_scaled.shape)
         y_saliency = combine_patches(values, patch_size, stride, x_scaled.shape)
-        print('view y');import pdb;pdb.set_trace()
+        # print('view y');import pdb;pdb.set_trace()
         return y
 
 
