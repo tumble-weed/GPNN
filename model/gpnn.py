@@ -45,6 +45,11 @@ class gpnn:
         else:
             img_path = config['input_img']
         self.input_img = img_read(img_path)
+        # self.imput
+        assert isinstance(self.input_img,torch.Tensor)
+        input_img_3chan = self.input_img if self.input_img.ndim == 2 else self.input_img[...,None]
+        self.input_img_t = torch.tensor(input_img_3chan).permute(2,0,1).unsqueeze(0).to(device)
+        
         if config['out_size'] != 0:
             if self.input_img.shape[0] > config['out_size']:
                 self.input_img = rescale(self.input_img, config['out_size'] / self.input_img.shape[0], multichannel=True)
@@ -56,14 +61,18 @@ class gpnn:
         pyramid_depth = np.log(min(self.input_img.shape[:2]) / min(self.COARSE_DIM)) / np.log(self.R)
         self.add_base_level = True if np.ceil(pyramid_depth) > pyramid_depth else False
         pyramid_depth = int(np.ceil(pyramid_depth))
-        self.x_pyramid = list(
-            tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+
         '''
         assert False,'we need to represent saliency pyramid using kornia'
+        self.x_pyramid = list(
+            tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+            
         self.saliency_pyramid = list(
             tuple(pyramid_gaussian(self.saliency, pyramid_depth, downscale=self.R, multichannel=True)))
 
         '''
+        self.x_pyramid = model.kornia_utils.build_pyramid(self.input_img_t, pyramid_depth,downscale=self.R)
+        
         self.saliency_pyramid = model.kornia_utils.build_pyramid(self.saliency, pyramid_depth,downscale=self.R)
                 
         if self.add_base_level is True:
@@ -96,18 +105,25 @@ class gpnn:
 
     def run(self, to_save=True):
         for i in reversed(range(len(self.x_pyramid))):
+            assert isinstance(self.x_pyramid[i],torch.Tensor)
+            # assert isinstance(self.y_pyramid[i],torch.Tensor)
             if i == len(self.x_pyramid) - 1:
                 queries = self.coarse_img
                 keys = self.x_pyramid[i]
             else:
+                '''
                 queries = resize(self.y_pyramid[i + 1], self.x_pyramid[i].shape)
                 keys = resize(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
+                '''
+                queries = torch.nn.functional.interpolate(self.y_pyramid[i + 1], self.x_pyramid[i].shape)
+                keys = torch.nn.functional.interpolate(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
             new_keys = True
             for j in range(self.T):
                 if self.is_faiss:
                     self.y_pyramid[i] = self.PNN_faiss(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
                                                        self.ALPHA, mask=None, new_keys=new_keys,saliency=self.saliency)
                 else:
+                    assert False,'not compatible with tensors'
                     self.y_pyramid[i] = self.PNN(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
                                                  self.ALPHA)
                 queries = self.y_pyramid[i]
@@ -116,6 +132,9 @@ class gpnn:
                     new_keys = False
         if to_save:
             img_save(self.y_pyramid[0], self.out_file)
+            as_np = tensor_to_numpy(self.y_pyramid[0])[0]
+            as_np = torch.transpose(as_np,(1,2,0))
+            img_save(as_np, self.out_file)
         else:
             return self.y_pyramid[0]
 
