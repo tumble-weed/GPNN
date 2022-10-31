@@ -2,3 +2,5 @@ imageio
 numpy
 scikit-image
 torch
+kornia==0.6.5
+faiss

@@ -48,7 +48,8 @@ class gpnn:
         if config['out_size'] != 0:
             if self.input_img.shape[0] > config['out_size']:
                 self.input_img = rescale(self.input_img, config['out_size'] / self.input_img.shape[0], multichannel=True)
-        self.saliency = np.random.random(self.input_img.shape)
+        self.saliency = torch.tensor(
+			np.random.random(size = (1,1) + self.input_img.shape[:2])).to(device)
         assert self.saliency.max() <= 1
         assert self.saliency.min() >= 0
         # pyramids
@@ -63,7 +64,7 @@ class gpnn:
             tuple(pyramid_gaussian(self.saliency, pyramid_depth, downscale=self.R, multichannel=True)))
 
         '''
-        self.saliency_pyramid = model.kornia_utils(self.saliency, pyramid_depth,downscale=self.R)
+        self.saliency_pyramid = model.kornia_utils.build_pyramid(self.saliency, pyramid_depth,downscale=self.R)
                 
         if self.add_base_level is True:
             self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
@@ -119,7 +120,7 @@ class gpnn:
             return self.y_pyramid[0]
 
     def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
-        assert False,'not implemented for saliency'
+        # assert False,'not implemented for saliency'
         queries = extract_patches(y_scaled, patch_size, stride)
         keys = extract_patches(x_scaled, patch_size, stride)
         values = extract_patches(x, patch_size, stride)
