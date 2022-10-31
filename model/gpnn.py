@@ -246,12 +246,12 @@ def combine_patches(O, patch_size, stride, img_shape):
     # batch_size,chan,Xpatch_size,Ypatch_size
     #  -> 1, channels*Xpatch_size*Ypatch_size, H*W
     # chan,batch_size,patch_size,patch_size
-    combined = fold(patches, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+    combined = fold(patches, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
 
     # normal fold matrix
-    input_ones = torch.ones((1, img_shape[2], img_shape[0], img_shape[1]), dtype=O.dtype, device=device)
+    input_ones = torch.ones((1, img_shape[1], img_shape[-2], img_shape[-1]), dtype=O.dtype, device=device)
     divisor = unfold(input_ones, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0))
-    divisor = fold(divisor, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+    divisor = fold(divisor, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
 
     divisor[divisor == 0] = 1.0
     combined =  (combined / divisor).squeeze(dim=0).permute(1, 2, 0)
