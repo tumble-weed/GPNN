@@ -225,11 +225,16 @@ def combine_patches(O, patch_size, stride, img_shape):
 def combine_patches(O, patch_size, stride, img_shape):
     assert img_shape.__len__() == 4
     assert len(patch_size) == 2
-    assert len(O.shape) == 6
-    assert O.shape[-2:] == patch_size
-    O = O.permute((0,2,3,1,4,5))
-    O = O.contiguous()
-    O = O.view(-1,*O.shape[-3:])
+    if len(O.shape) == 6:
+        # O: (batch_size,chan,n_patches,n_patches,patch_size,patch_size) -> (batch_size,n_patches,n_patches,chan,patch_size,patch_size)
+        O = O.permute((0,2,3,1,4,5))
+        O = O.contiguous()
+        O = O.view(-1,*O.shape[-3:])
+        assert O.shape[-2:] == patch_size
+
+    
+    
+
     # O.shape == (-1,channels,patch_size,patch_size)
     channels = 3
     O = O.permute(1, 0, 2, 3).unsqueeze(0) # chan,batch_size,patch_size,patch_size
