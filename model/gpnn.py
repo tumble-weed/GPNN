@@ -49,7 +49,7 @@ class gpnn:
             if self.input_img.shape[0] > config['out_size']:
                 self.input_img = rescale(self.input_img, config['out_size'] / self.input_img.shape[0], multichannel=True)
         self.saliency = torch.tensor(
-			np.random.random(size = (1,1) + self.input_img.shape[:2])).to(device)
+			np.random.random(size = (1,1) + self.input_img.shape[:2])).float().to(device).requires_grad_(True)
         assert self.saliency.max() <= 1
         assert self.saliency.min() >= 0
         # pyramids
@@ -106,7 +106,7 @@ class gpnn:
             for j in range(self.T):
                 if self.is_faiss:
                     self.y_pyramid[i] = self.PNN_faiss(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
-                                                       self.ALPHA, mask=None, new_keys=new_keys)
+                                                       self.ALPHA, mask=None, new_keys=new_keys,saliency=self.saliency)
                 else:
                     self.y_pyramid[i] = self.PNN(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
                                                  self.ALPHA)
@@ -181,8 +181,20 @@ class gpnn:
 
 
 def extract_patches(src_img, patch_size, stride):
-    channels = 3
-    img = torch.from_numpy(src_img).to(device).unsqueeze(0).permute(0, 3, 1, 2)
+    
+    if isinstance(src_img,torch.Tensor):
+        img = src_img
+        channels = src_img.shape[1]    
+    else:
+        if src_img.ndim == 3:
+            assert src_img.shape[-1] == 3
+            channels = 3
+        else:
+            src_img = src_img[...,None]
+            channels = 1
+        img = torch.from_numpy(src_img).to(device).unsqueeze(0).permute(0, 3, 1, 2)
+        
+
     return torch.nn.functional.unfold(img, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0)) \
         .squeeze(dim=0).permute((1, 0)).reshape(-1, channels, patch_size[0], patch_size[1])
 
