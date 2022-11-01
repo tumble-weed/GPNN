@@ -46,10 +46,13 @@ class gpnn:
             img_path = config['input_img']
         self.input_img = img_read(img_path)
         # self.imput
-        assert isinstance(self.input_img,torch.Tensor)
-        input_img_3chan = self.input_img if self.input_img.ndim == 2 else self.input_img[...,None]
+        if not isinstance(self.input_img,torch.Tensor):
+            print('warning input_img is not a tensor')
+        input_img_3chan = self.input_img if self.input_img.ndim == 3 else self.input_img[...,None]
         self.input_img_t = torch.tensor(input_img_3chan).permute(2,0,1).unsqueeze(0).to(device)
-        
+        if self.input_img_t.dtype == torch.uint8:
+            self.input_img_t = self.input_img_t.float() / 255.0
+            
         if config['out_size'] != 0:
             if self.input_img.shape[0] > config['out_size']:
                 self.input_img = rescale(self.input_img, config['out_size'] / self.input_img.shape[0], multichannel=True)
@@ -76,7 +79,8 @@ class gpnn:
         self.saliency_pyramid = model.kornia_utils.build_pyramid(self.saliency, pyramid_depth,downscale=self.R)
                 
         if self.add_base_level is True:
-            self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
+            # self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
+            self.x_pyramid[-1] = torch.nn.functional.interpolate(self.x_pyramid[-2], self.COARSE_DIM)
         self.y_pyramid = [0] * (pyramid_depth + 1)
 
         # out_file
@@ -86,6 +90,8 @@ class gpnn:
         # coarse settings
         if config['task'] == 'random_sample':
             noise = np.random.normal(0, config['sigma'], self.COARSE_DIM)[..., np.newaxis]
+            device = self.x_pyramid[-1]
+            noise = torch.tensor(np.transpose(noise, (2, 0, 1))).to(device).float().unsqueeze(0)
             self.coarse_img = self.x_pyramid[-1] + noise
         elif config['task'] == 'structural_analogies':
             self.coarse_img = img_read(config['img_b'])
@@ -164,8 +170,8 @@ class gpnn:
         return y
 
     def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,saliency=None):
-        assert x.ndim == 3
-        assert x_scaled.ndim == 3
+        # assert x.ndim == 3
+        # assert x_scaled.ndim == 3
         queries = extract_patches(y_scaled, patch_size, stride)
         keys = extract_patches(x_scaled, patch_size, stride)
         values = extract_patches(x, patch_size, stride)
@@ -181,6 +187,7 @@ class gpnn:
             self.index = faiss.IndexFlatL2(keys_flat.shape[-1])
             self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
             self.index.add(keys_flat)
+        print('see if any problems with faiss');import pdb;pdb.set_trace()
         D, I = self.index.search(queries_flat, 1)
         if mask is not None:
             assert False,'not compatible with saliency'
