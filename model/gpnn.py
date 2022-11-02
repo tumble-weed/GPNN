@@ -45,6 +45,8 @@ class gpnn:
         else:
             img_path = config['input_img']
         self.input_img = img_read(img_path)
+        self.input_img = rescale(self.input_img,(0.5,0.5,1)); print('rescaling input image to 0.5')
+        assert self.input_img.shape[-1] == 3,'channels reduced during rescaling?'
         # self.imput
         if not isinstance(self.input_img,torch.Tensor):
             print('warning input_img is not a tensor')
@@ -189,6 +191,7 @@ class gpnn:
             self.index.add(keys_flat)
         print('see if any problems with faiss');import pdb;pdb.set_trace()
         D, I = self.index.search(queries_flat, 1)
+        print('see if any problems with faiss');import pdb;pdb.set_trace()
         if mask is not None:
             assert False,'not compatible with saliency'
             values[mask] = values[~mask][I.T]
