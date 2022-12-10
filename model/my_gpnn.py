@@ -65,7 +65,7 @@ class gpnn:
         self.x_pyramid = list(
             tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
         #============================================
-        self.other_x = torch.ones(1,1,self.input_img.shape[:2]).float().to(device)
+        self.other_x = torch.ones(1,1,*self.input_img.shape[:2]).float().to(device)
         self.other_x_pyramid = list(
             tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
         #============================================
@@ -78,7 +78,7 @@ class gpnn:
         # filename = os.path.splitext(os.path.basename(img_path))[0]
         filename = 'out_img'
         self.out_file = os.path.join(config['out_dir'], "%s_%s.png" % (filename, config['task']))
-        self.batch_size = 1
+        self.batch_size = 2
         # coarse settings
         if config['task'] == 'random_sample':
             noise = np.random.normal(0, config['sigma'], (self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
@@ -155,7 +155,7 @@ class gpnn:
         other_x = None;print('setting other_x to None forcefully')
         print('using faiss')
         print('this shouldnt be np.array but also work for tensor')
-        queries = np.array([extract_patches(ys, patch_size, stride) for ys in y_scaled])
+        queries = torch.stack([extract_patches(ys, patch_size, stride) for ys in y_scaled],dim=0)
         print('extracted query',queries.shape)
         keys = extract_patches(x_scaled, patch_size, stride)
         print('extracted keys')
@@ -185,7 +185,8 @@ class gpnn:
             # import pdb;pdb.set_trace()
             print('created index')
             # import pdb;pdb.set_trace()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+            if torch.cuda.is_available():
+                self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
             print('pushed index to gpu')
             self.index.add(keys_proj)
         if self.use_pca:
@@ -201,8 +202,10 @@ class gpnn:
         else:
             values = values[I.T]
             #O = values[I.T]
-        values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],-1)
+        assert values.ndim ==4
+        values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
         #====================================================================
+        # import pdb;pdb.set_trace()
         y = np.array([combine_patches(v, patch_size, stride, x_scaled.shape) for v in values])
         if other_x is not None:
             # assert isinstance(other_x,torch.Tensor)
