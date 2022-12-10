@@ -45,12 +45,12 @@ output_im = model.run(to_save=True)
 
 # output_im = skimage.io.imread(output_imname)
 
+if False:
+    plt.figure()
+    plt.imshow(np.array(original_im[...,:3]))
+    plt.show()
 
-plt.figure()
-plt.imshow(np.array(original_im[...,:3]))
-plt.show()
-
-plt.figure()
-plt.imshow(np.array(output_im))
-plt.show()
+    plt.figure()
+    plt.imshow(np.array(output_im))
+    plt.show()
 #%%

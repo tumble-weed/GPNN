@@ -128,7 +128,9 @@ class gpnn:
                 if j > 1:
                     new_keys = False
         if to_save:
-            img_save(self.y_pyramid[0], self.out_file)
+            # if self.batch_size > 1:
+            for ii,yi in enumerate(self.y_pyramid[0]):
+                img_save(yi, self.out_file[:-len('.png')] + str(ii) + '.png' )
         return self.y_pyramid[0]
 
     def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
