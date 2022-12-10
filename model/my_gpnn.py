@@ -120,8 +120,7 @@ class gpnn:
                     new_keys = False
         if to_save:
             img_save(self.y_pyramid[0], self.out_file)
-        else:
-            return self.y_pyramid[0]
+        return self.y_pyramid[0]
 
     def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
         queries = extract_patches(y_scaled, patch_size, stride)

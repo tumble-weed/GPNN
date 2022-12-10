@@ -1,5 +1,6 @@
 #%%
 import os
+import numpy as np
 # os.chdir('/root/evaluate-saliency-5/GPNN')
 #%%
 # faiss doesnt work without gpu
@@ -46,7 +47,7 @@ output_im = model.run(to_save=True)
 
 
 plt.figure()
-plt.imshow(np.array(original_im))
+plt.imshow(np.array(original_im[...,:3]))
 plt.show()
 
 plt.figure()
