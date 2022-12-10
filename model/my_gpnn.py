@@ -168,7 +168,7 @@ class gpnn:
             keys = keys[~mask]
         #====================================================================
 
-        queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0], -1)).cpu().numpy(), dtype='float32')
+        queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0]*queries.shape[1], -1)).cpu().numpy(), dtype='float32')
         keys_flat = np.ascontiguousarray(keys.reshape((keys.shape[0], -1)).cpu().numpy(), dtype='float32')
         if new_keys:
             if self.use_pca:
@@ -200,9 +200,9 @@ class gpnn:
         else:
             values = values[I.T]
             #O = values[I.T]
-        
+        values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],-1)
         #====================================================================
-        y = combine_patches(values, patch_size, stride, x_scaled.shape)
+        y = np.array([combine_patches(v, patch_size, stride, x_scaled.shape) for v in values])
         if other_x is not None:
             # assert isinstance(other_x,torch.Tensor)
             other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape)
