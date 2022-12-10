@@ -197,6 +197,7 @@ class gpnn:
         else:
             queries_proj = queries_flat
         print('searching')
+        import pdb;pdb.set_trace()
         D, I = self.index.search(queries_proj, 1)
         if mask is not None:
             assert False,'not implemented'
