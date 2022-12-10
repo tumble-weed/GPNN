@@ -1,19 +1,22 @@
 #%%
 import os
-os.chdir('/root/evaluate-saliency-5/GPNN')
+# os.chdir('/root/evaluate-saliency-5/GPNN')
 #%%
 # faiss doesnt work without gpu
 # !python random_sample.py -in database/balloons.png --faiss
 import skimage.io
-original_imname = 'images/ILSVRC2012_val_00000013.JPEG'
+from matplotlib import pyplot as plt
+# original_imname = 'images/ILSVRC2012_val_00000013.JPEG'
+# original_imname = 'database/balloons.png'
+original_imname = 'database/volacano.png'
 output_imname = os.path.join('output',os.path.basename(original_imname))
 output_imname_root,ext = output_imname.split('.')
 output_imname = output_imname_root + '_random_sample' +'.png'
 original_im = skimage.io.imread(original_imname)
 # !python random_sample.py -in  {original_imname} --faiss
 # assert False
-# from model.my_gpnn import gpnn
-from model.gpnn import gpnn
+from model.my_gpnn import gpnn
+# from model.gpnn import gpnn
 config = {
     'out_dir':'.',
     'iters':10,
@@ -36,17 +39,17 @@ config = {
 }
 
 model = gpnn(config)
-output_im = model.run(to_save=False)
+output_im = model.run(to_save=True)
     
 
 # output_im = skimage.io.imread(output_imname)
 
 
 plt.figure()
-plt.imshow(original_im)
+plt.imshow(np.array(original_im))
 plt.show()
 
 plt.figure()
-plt.imshow(output_im)
+plt.imshow(np.array(output_im))
 plt.show()
 #%%

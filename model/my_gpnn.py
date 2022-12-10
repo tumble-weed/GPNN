@@ -94,6 +94,7 @@ class gpnn:
                 mask = torch.all(mask, dim=1)
                 self.mask_pyramid[i] = mask
         self.n_pca_components = 10
+        self.use_pca = False
         print('init done')
 
     def run(self, to_save=True):
@@ -157,9 +158,9 @@ class gpnn:
         queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0], -1)).cpu().numpy(), dtype='float32')
         keys_flat = np.ascontiguousarray(keys.reshape((keys.shape[0], -1)).cpu().numpy(), dtype='float32')
         if new_keys:
-            pca = PCA(self.n_pca_components)
-            if False:
-                keys_proj = pca.fit_transform(keys_flat)
+            if self.use_pca:
+                self.pca = PCA(self.n_pca_components)
+                keys_proj = self.pca.fit_transform(keys_flat)
                 keys_proj = np.ascontiguousarray(keys_proj)
             else:
                 keys_proj = keys_flat
@@ -173,8 +174,8 @@ class gpnn:
             self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
             print('pushed index to gpu')
             self.index.add(keys_proj)
-        if False:
-            queries_proj = pca.transform(queries_flat)
+        if self.use_pca:
+            queries_proj = self.pca.transform(queries_flat)
             queries_proj = np.ascontiguousarray(queries_proj)
         else:
             queries_proj = queries_flat
