@@ -78,15 +78,17 @@ class gpnn:
         # filename = os.path.splitext(os.path.basename(img_path))[0]
         filename = 'out_img'
         self.out_file = os.path.join(config['out_dir'], "%s_%s.png" % (filename, config['task']))
-
+        self.batch_size = 1
         # coarse settings
         if config['task'] == 'random_sample':
-            noise = np.random.normal(0, config['sigma'], self.COARSE_DIM)[..., np.newaxis]
-            self.coarse_img = self.x_pyramid[-1] + noise
+            noise = np.random.normal(0, config['sigma'], (self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
+            self.coarse_img = self.x_pyramid[-1][None,...] + noise
         elif config['task'] == 'structural_analogies':
+            assert False,'not implemented'
             self.coarse_img = img_read(config['img_b'])
             self.coarse_img = resize(self.coarse_img, self.x_pyramid[-1].shape)
         elif config['task'] == 'inpainting':
+            assert False,'not implemented'
             self.coarse_img = self.x_pyramid[-1]
             mask_img = img_read(config['mask'])
             self.mask_pyramid = [0] * len(self.x_pyramid)
@@ -98,6 +100,7 @@ class gpnn:
                 mask = torch.all(mask, dim=2)
                 mask = torch.all(mask, dim=1)
                 self.mask_pyramid[i] = mask
+        assert len(self.coarse_img.shape) == 4
         self.n_pca_components = 10
         self.use_pca = False
         print('init done')
@@ -109,7 +112,7 @@ class gpnn:
                 queries = self.coarse_img
                 keys = self.x_pyramid[i]
             else:
-                queries = resize(self.y_pyramid[i + 1], self.x_pyramid[i].shape)
+                queries = np.array([resize(yp, self.x_pyramid[i].shape) for yp in self.y_pyramid[i + 1]])
                 keys = resize(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
             new_keys = True
             for j in tqdm.tqdm_notebook(range(self.T)):
@@ -150,7 +153,8 @@ class gpnn:
     def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,
         other_x=None,extra_return={}):
         print('using faiss')
-        queries = extract_patches(y_scaled, patch_size, stride)
+        print('this shouldnt be np.array but also work for tensor')
+        queries = np.array([extract_patches(ys, patch_size, stride) for ys in y_scaled])
         print('extracted query',queries.shape)
         keys = extract_patches(x_scaled, patch_size, stride)
         print('extracted keys')
@@ -159,6 +163,7 @@ class gpnn:
             other_values = extract_patches(other_x,patch_size, stride)
         print('extracted values')
         if mask is not None:
+            assert False,'not implemented for 4d query'
             queries = queries[mask]
             keys = keys[~mask]
         #====================================================================
@@ -190,6 +195,7 @@ class gpnn:
         print('searching')
         D, I = self.index.search(queries_proj, 1)
         if mask is not None:
+            assert False,'not implemented'
             values[mask] = values[~mask][I.T]
         else:
             values = values[I.T]
