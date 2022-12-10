@@ -152,6 +152,7 @@ class gpnn:
 
     def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,
         other_x=None,extra_return={}):
+        other_x = None;print('setting other_x to None forcefully')
         print('using faiss')
         print('this shouldnt be np.array but also work for tensor')
         queries = np.array([extract_patches(ys, patch_size, stride) for ys in y_scaled])
