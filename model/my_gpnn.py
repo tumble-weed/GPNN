@@ -5,6 +5,7 @@ from skimage.transform import rescale, resize
 from torch.nn.functional import fold, unfold
 from .utils import *
 from .pca import PCA
+import faiss.contrib.torch_utils
 TODO = None
 class gpnn:
     def __init__(self, config):
@@ -171,7 +172,8 @@ class gpnn:
             keys = keys[~mask]
         #====================================================================
 
-        queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0]*queries.shape[1], -1)).cpu().numpy(), dtype='float32')
+        # queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0]*queries.shape[1], -1)).cpu().numpy(), dtype='float32')
+        queries_flat = queries.reshape((queries.shape[0]*queries.shape[1], -1)).float().contiguous()
         keys_flat = np.ascontiguousarray(keys.reshape((keys.shape[0], -1)).cpu().numpy(), dtype='float32')
         if new_keys:
             if self.use_pca:
@@ -197,22 +199,29 @@ class gpnn:
         else:
             queries_proj = queries_flat
         print('searching')
-        import pdb;pdb.set_trace()
+        # import pdb;pdb.set_trace()
         D, I = self.index.search(queries_proj, 1)
+        # D1, I1 = self.index.search(queries_proj.cpu().numpy(), 1)
         if mask is not None:
             assert False,'not implemented'
             values[mask] = values[~mask][I.T]
         else:
+            # import pdb;pdb.set_trace()
             values = values[I.T]
             #O = values[I.T]
-        assert values.ndim ==4
+        assert values.ndim == 5
+        assert values.shape[0] == 1
+        values = values.squeeze()
         values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
         #====================================================================
         # import pdb;pdb.set_trace()
-        y = np.array([combine_patches(v, patch_size, stride, x_scaled.shape) for v in values])
+        if False:
+            y = np.array([combine_patches(v, patch_size, stride, x_scaled.shape) for v in values])
+        else:
+            y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape,as_np=False) for v in values],dim=0)
         if other_x is not None:
             # assert isinstance(other_x,torch.Tensor)
-            other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape)
+            other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape,as_np=False)
             extra_return['other_y']  = other_y
         print('combined')
         return y
@@ -263,6 +272,10 @@ def extract_patches(src_img, patch_size, stride):
         img = torch.from_numpy(src_img).to(device).unsqueeze(0).permute(0, 3, 1, 2)
     else:
         img = src_img
+        if src_img.ndim == 3:
+            img = img.unsqueeze(0)
+        img = img.permute(0, 3, 1, 2)
+
     return torch.nn.functional.unfold(img, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0)) \
         .squeeze(dim=0).permute((1, 0)).reshape(-1, channels, patch_size[0], patch_size[1])
 
@@ -274,7 +287,7 @@ def compute_distances(queries, keys):
     return dist_mat
 
 
-def combine_patches(O, patch_size, stride, img_shape):
+def combine_patches(O, patch_size, stride, img_shape,as_np = True):
     channels = 3
     O = O.permute(1, 0, 2, 3).unsqueeze(0)
     patches = O.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
@@ -288,7 +301,11 @@ def combine_patches(O, patch_size, stride, img_shape):
     divisor = fold(divisor, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
 
     divisor[divisor == 0] = 1.0
-    return (combined / divisor).squeeze(dim=0).permute(1, 2, 0).cpu().numpy()
+    if as_np:
+        return (combined / divisor).squeeze(dim=0).permute(1, 2, 0).cpu().numpy()
+    else:
+        # import pdb;pdb.set_trace()
+        return (combined / divisor).squeeze(dim=0).permute(1, 2, 0)
 
 config = {
     'out_dir':None,
