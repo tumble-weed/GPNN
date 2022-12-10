@@ -110,7 +110,8 @@ class gpnn:
             for j in tqdm.tqdm_notebook(range(self.T)):
                 if self.is_faiss:
                     self.y_pyramid[i] = self.PNN_faiss(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
-                                                       self.ALPHA, mask=None, new_keys=new_keys)
+                                                       self.ALPHA, mask=None, new_keys=new_keys,
+                                                       other_x = self.x_pyramid[i])
                 else:
                     self.y_pyramid[i] = self.PNN(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
                                                  self.ALPHA)
@@ -141,13 +142,16 @@ class gpnn:
         y = combine_patches(values, patch_size, stride, x_scaled.shape)
         return y
 
-    def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True):
+    def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,
+        other_x=None,extra_return={}):
         print('using faiss')
         queries = extract_patches(y_scaled, patch_size, stride)
         print('extracted query',queries.shape)
         keys = extract_patches(x_scaled, patch_size, stride)
         print('extracted keys')
         values = extract_patches(x, patch_size, stride)
+        if other_x is not None:
+            other_values = extract_patches(other_x,patch_size, stride)
         print('extracted values')
         if mask is not None:
             queries = queries[mask]
@@ -185,15 +189,62 @@ class gpnn:
         else:
             values = values[I.T]
             #O = values[I.T]
+        
         #====================================================================
         y = combine_patches(values, patch_size, stride, x_scaled.shape)
+        if other_x is not None:
+            # assert isinstance(other_x,torch.Tensor)
+            other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape)
+            extra_return['other_y']  = other_y
         print('combined')
         return y
 
+def combine_patches_tensor(O, patch_size, stride, img_shape):
+    
+    assert img_shape.__len__() == 4
+    assert len(patch_size) == 2
+    assert len(O.shape) == 6
+    assert O.shape[-2:] == patch_size
+    O = O.permute((0,2,3,1,4,5))
+    O = O.contiguous()
+    O = O.view(-1,*O.shape[-3:])
+    assert O.shape[-2:] == patch_size
+    device = O.device
+    channels = 3
+    O = O.permute(1, 0, 2, 3).unsqueeze(0) # chan,batch_size,patch_size,patch_size
+    
+    patches = O.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
+        .permute(0, 1, 3, 2) \
+        .contiguous().view(1, channels * patch_size[0] * patch_size[0], -1)
+    # print('early return from combine_patches'); return torch.zeros(img_shape).to(O.device)
+    # batch_size,chan,Ypatch_size,-1
+    # batch_size,chan,Xpatch_size,Ypatch_size
+    #  -> 1, channels*Xpatch_size*Ypatch_size, H*W
+    # chan,batch_size,patch_size,patch_size
+    combined = fold(patches, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
+
+    # normal fold matrix
+    input_ones = torch.ones((1, img_shape[1], img_shape[-2], img_shape[-1]), dtype=O.dtype, device=device)
+    divisor = unfold(input_ones, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0))
+    divisor = fold(divisor, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
+
+    divisor[divisor == 0] = 1.0
+    combined =  (combined / divisor).squeeze(dim=0).permute(1, 2, 0)
+    # convert from hwc to bchw format
+    '''
+    if False:
+        del O; torch.cuda.empty_cache()
+    '''
+    combined = combined.permute(2,0,1)[None,...]
+    # print('fake return from combine_patches'); return torch.zeros(img_shape).to(device)
+    return combined
 
 def extract_patches(src_img, patch_size, stride):
     channels = 3
-    img = torch.from_numpy(src_img).to(device).unsqueeze(0).permute(0, 3, 1, 2)
+    if not isinstance(src_img,torch.Tensor) and not len(src_img.shape) == 4:
+        img = torch.from_numpy(src_img).to(device).unsqueeze(0).permute(0, 3, 1, 2)
+    else:
+        img = src_img
     return torch.nn.functional.unfold(img, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0)) \
         .squeeze(dim=0).permute((1, 0)).reshape(-1, channels, patch_size[0], patch_size[1])
 
