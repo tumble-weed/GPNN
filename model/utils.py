@@ -2,7 +2,7 @@ from imageio import imread, imsave
 from skimage.util import img_as_ubyte
 import os
 
-
+tensor_to_numpy = lambda t:t.detach().cpu().numpy()
 def img_read(path):
 	im = imread(path)
 	if im.shape[2] > 3:
