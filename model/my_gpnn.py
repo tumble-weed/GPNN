@@ -64,6 +64,11 @@ class gpnn:
         pyramid_depth = int(np.ceil(pyramid_depth))
         self.x_pyramid = list(
             tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+        #============================================
+        self.other_x = torch.ones(1,1,self.input_img.shape[:2]).float().to(device)
+        self.other_x_pyramid = list(
+            tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+        #============================================
         # import pdb;pdb.set_trace()
         if self.add_base_level is True:
             self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
