@@ -7,9 +7,11 @@ import numpy as np
 # !python random_sample.py -in database/balloons.png --faiss
 import skimage.io
 from matplotlib import pyplot as plt
+from model.utils import Timer
 # original_imname = 'images/ILSVRC2012_val_00000013.JPEG'
 # original_imname = 'database/balloons.png'
 original_imname = 'database/volacano.png'
+
 output_imname = os.path.join('output',os.path.basename(original_imname))
 output_imname_root,ext = output_imname.split('.')
 output_imname = output_imname_root + '_random_sample' +'.png'
@@ -19,7 +21,7 @@ original_im = skimage.io.imread(original_imname)
 from model.my_gpnn import gpnn
 # from model.gpnn import gpnn
 config = {
-    'out_dir':'.',
+    'out_dir':'output',
     'iters':10,
     'coarse_dim':14,
     'out_size':0,
@@ -40,7 +42,8 @@ config = {
 }
 
 model = gpnn(config)
-output_im = model.run(to_save=True)
+with Timer('model run'):
+    output_im = model.run(to_save=True)
     
 
 # output_im = skimage.io.imread(output_imname)
