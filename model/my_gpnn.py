@@ -139,9 +139,10 @@ class gpnn:
                 # queries = torch.stack([torch.nn.functional.interpolate(yp,self.x_pyramid[i].shape[:2]) for yp in self.y_pyramid[i + 1]],dim=0)
                 
 
-                queries = resize_bhwc(self.y_pyramid[i + 1],self.x_pyramid[i].shape[:2])
+                queries = resize_bhwc(self.y_pyramid[i + 1],self.x_pyramid[i].shape[1:3])
                 # import pdb;pdb.set_trace()
-                keys = resize(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
+                # keys = resize(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
+                keys = resize_bhwc(self.x_pyramid[i + 1],self.x_pyramid[i].shape[1:3])
             new_keys = True
             for j in tqdm.tqdm_notebook(range(self.T)):
                 if self.is_faiss:
@@ -151,10 +152,12 @@ class gpnn:
                 else:
                     self.y_pyramid[i] = self.PNN(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
                                                  self.ALPHA)
+                
                 queries = self.y_pyramid[i]
                 keys = self.x_pyramid[i]
                 if j > 1:
                     new_keys = False
+            # import pdb;pdb.set_trace()
         if to_save:
             # if self.batch_size > 1:
             for ii,yi in enumerate(self.y_pyramid[0]):
@@ -202,8 +205,12 @@ class gpnn:
         #====================================================================
 
         # queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0]*queries.shape[1], -1)).cpu().numpy(), dtype='float32')
-        queries_flat = queries.reshape((queries.shape[0]*queries.shape[1], -1)).float().contiguous()
-        keys_flat = np.ascontiguousarray(keys.reshape((keys.shape[0], -1)).cpu().numpy(), dtype='float32')
+        assert queries.ndim == 5
+        queries_flat = queries.reshape((queries.shape[0]*queries.shape[1], -1)).contiguous()
+        # keys_flat = np.ascontiguousarray(keys.reshape((keys.shape[0], -1)).cpu().numpy(), dtype='float32')
+        assert keys.ndim == 4
+        keys_flat = keys.reshape((keys.shape[0], -1)).contiguous()
+        # import pdb;pdb.set_trace()
         if new_keys:
             if self.use_pca:
                 self.pca = PCA(self.n_pca_components)
@@ -248,13 +255,15 @@ class gpnn:
             y = np.array([combine_patches(v, patch_size, stride, x_scaled.shape) for v in values])
         else:
             assert len(x_scaled.shape) == 4
-            y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3],as_np=False) for v in values],dim=0)
+            y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3]+(3,),as_np=False) for v in values],dim=0)
         if other_x is not None:
             # assert isinstance(other_x,torch.Tensor)
             other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape,as_np=False)
             extra_return['other_y']  = other_y
         print('combined')
         if y.shape[-1] !=3:
+            import pdb;pdb.set_trace()
+        if 1 in y.shape[1:3]:
             import pdb;pdb.set_trace()
         return y
 
@@ -319,7 +328,7 @@ def compute_distances(queries, keys):
     return dist_mat
 
 
-def combine_patches(O, patch_size, stride, img_shape,as_np = True):
+def combine_patches(O, patch_size, stride, img_shape,as_np = False):
     channels = 3
     O = O.permute(1, 0, 2, 3).unsqueeze(0)
     patches = O.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
