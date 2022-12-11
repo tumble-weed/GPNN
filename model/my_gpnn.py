@@ -6,6 +6,7 @@ from torch.nn.functional import fold, unfold
 from .utils import *
 from .pca import PCA
 import faiss.contrib.torch_utils
+tensor_to_numpy = lambda t:t.detach().cpu().numpy()
 TODO = None
 class gpnn:
     def __init__(self, config):
@@ -113,7 +114,16 @@ class gpnn:
                 queries = self.coarse_img
                 keys = self.x_pyramid[i]
             else:
-                queries = np.array([resize(yp, self.x_pyramid[i].shape) for yp in self.y_pyramid[i + 1]])
+                # queries = np.array([resize(yp, self.x_pyramid[i].shape) for yp in self.y_pyramid[i + 1]])
+                # queries = torch.stack([torch.nn.functional.interpolate(yp,self.x_pyramid[i].shape[:2]) for yp in self.y_pyramid[i + 1]],dim=0)
+                
+                def resize_bhwc(bhwc,size):
+                    bchw = bhwc.permute(0,3,1,2)
+                    bchw_r = torch.nn.functional.interpolate(bchw,size)
+                    bhwc_r = bchw_r.permute((0,2,3,1))
+                    return bhwc_r
+                queries = resize_bhwc(self.y_pyramid[i + 1],self.x_pyramid[i].shape[:2])
+                # import pdb;pdb.set_trace()
                 keys = resize(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
             new_keys = True
             for j in tqdm.tqdm_notebook(range(self.T)):
@@ -131,33 +141,35 @@ class gpnn:
         if to_save:
             # if self.batch_size > 1:
             for ii,yi in enumerate(self.y_pyramid[0]):
-                img_save(yi, self.out_file[:-len('.png')] + str(ii) + '.png' )
+                assert yi.shape[-1] == 3
+                img_save(tensor_to_numpy(yi), self.out_file[:-len('.png')] + str(ii) + '.png' )
         return self.y_pyramid[0]
 
-    def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
-        queries = extract_patches(y_scaled, patch_size, stride)
-        keys = extract_patches(x_scaled, patch_size, stride)
-        values = extract_patches(x, patch_size, stride)
-        if mask is None:
-            dist = torch.cdist(queries.view(len(queries), -1), keys.view(len(keys), -1))
-        else:
-            m_queries, m_keys = queries[mask], keys[~mask]
-            dist = torch.cdist(m_queries.view(len(m_queries), -1), m_keys.view(len(m_keys), -1))
-        norm_dist = (dist / (torch.min(dist, dim=0)[0] + alpha))  # compute_normalized_scores
-        NNs = torch.argmin(norm_dist, dim=1)  # find_NNs
-        if mask is None:
-            values = values[NNs]
-        else:
-            values[mask] = values[~mask][NNs]
-            # O = values[NNs]  # replace_NNs(values, NNs)
-        y = combine_patches(values, patch_size, stride, x_scaled.shape)
-        return y
+    # def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
+    #     queries = extract_patches(y_scaled, patch_size, stride)
+    #     keys = extract_patches(x_scaled, patch_size, stride)
+    #     values = extract_patches(x, patch_size, stride)
+    #     if mask is None:
+    #         dist = torch.cdist(queries.view(len(queries), -1), keys.view(len(keys), -1))
+    #     else:
+    #         m_queries, m_keys = queries[mask], keys[~mask]
+    #         dist = torch.cdist(m_queries.view(len(m_queries), -1), m_keys.view(len(m_keys), -1))
+    #     norm_dist = (dist / (torch.min(dist, dim=0)[0] + alpha))  # compute_normalized_scores
+    #     NNs = torch.argmin(norm_dist, dim=1)  # find_NNs
+    #     if mask is None:
+    #         values = values[NNs]
+    #     else:
+    #         values[mask] = values[~mask][NNs]
+    #         # O = values[NNs]  # replace_NNs(values, NNs)
+    #     y = combine_patches(values, patch_size, stride, x_scaled.shape)
+    #     return y
 
     def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,
         other_x=None,extra_return={}):
         other_x = None;print('setting other_x to None forcefully')
         print('using faiss')
         print('this shouldnt be np.array but also work for tensor')
+        assert y_scaled[0].shape[-1] == 3
         queries = torch.stack([extract_patches(ys, patch_size, stride) for ys in y_scaled],dim=0)
         print('extracted query',queries.shape)
         keys = extract_patches(x_scaled, patch_size, stride)
@@ -184,7 +196,7 @@ class gpnn:
                 keys_proj = keys_flat
             n_patches = keys_flat.shape[-1]
             print(n_patches)
-            
+            import pdb;pdb.set_trace()
             self.index = faiss.IndexFlatL2(keys_proj.shape[-1])
             # import pdb;pdb.set_trace()
             print('created index')
@@ -224,6 +236,8 @@ class gpnn:
             other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape,as_np=False)
             extra_return['other_y']  = other_y
         print('combined')
+        if y.shape[-1] !=3:
+            import pdb;pdb.set_trace()
         return y
 
 def combine_patches_tensor(O, patch_size, stride, img_shape):
