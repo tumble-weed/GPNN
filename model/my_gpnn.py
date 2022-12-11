@@ -10,6 +10,11 @@ import kornia as K
 from kornia.geometry.transform.pyramid import pyrdown
 tensor_to_numpy = lambda t:t.detach().cpu().numpy()
 TODO = None
+def resize_bhwc(bhwc,size):
+    bchw = bhwc.permute(0,3,1,2)
+    bchw_r = torch.nn.functional.interpolate(bchw,size)
+    bhwc_r = bchw_r.permute((0,2,3,1))
+    return bhwc_r
 class gpnn:
     def __init__(self, config):
         # general settings
@@ -74,7 +79,7 @@ class gpnn:
                                 border_type = 'reflect', 
                                 align_corners = False, 
                                 factor = self.R ** i).permute(0,2,3,1) for i in range(pyramid_depth)]
-        import pdb;pdb.set_trace()
+        # import pdb;pdb.set_trace()
         #============================================
         self.other_x = torch.ones(1,1,*self.input_img.shape[:2]).float().to(device)
         self.other_x_pyramid = list(
@@ -82,7 +87,8 @@ class gpnn:
         #============================================
         # import pdb;pdb.set_trace()
         if self.add_base_level is True:
-            self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
+            # self.x_pyramid[-1] = resize(self.x_pyramid[-2], self.COARSE_DIM)
+            self.x_pyramid[-1] = resize_bhwc(self.x_pyramid[-2], self.COARSE_DIM)
         self.y_pyramid = [0] * (pyramid_depth + 1)
 
         # out_file
@@ -92,8 +98,14 @@ class gpnn:
         self.batch_size = 100
         # coarse settings
         if config['task'] == 'random_sample':
-            noise = np.random.normal(0, config['sigma'], (self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
-            self.coarse_img = self.x_pyramid[-1][None,...] + noise
+            if isinstance(self.x_pyramid[-1],np.ndarray):
+                noise = np.random.normal(0, config['sigma'], (self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
+                self.coarse_img = self.x_pyramid[-1][None,...] + noise
+            else:
+                assert len(self.x_pyramid[-1]) == 4
+                noise = config['sigma']*torch.randn((self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
+                self.coarse_img = self.x_pyramid[-1] + noise
+
         elif config['task'] == 'structural_analogies':
             assert False,'not implemented'
             self.coarse_img = img_read(config['img_b'])
@@ -126,11 +138,7 @@ class gpnn:
                 # queries = np.array([resize(yp, self.x_pyramid[i].shape) for yp in self.y_pyramid[i + 1]])
                 # queries = torch.stack([torch.nn.functional.interpolate(yp,self.x_pyramid[i].shape[:2]) for yp in self.y_pyramid[i + 1]],dim=0)
                 
-                def resize_bhwc(bhwc,size):
-                    bchw = bhwc.permute(0,3,1,2)
-                    bchw_r = torch.nn.functional.interpolate(bchw,size)
-                    bhwc_r = bchw_r.permute((0,2,3,1))
-                    return bhwc_r
+
                 queries = resize_bhwc(self.y_pyramid[i + 1],self.x_pyramid[i].shape[:2])
                 # import pdb;pdb.set_trace()
                 keys = resize(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
