@@ -102,7 +102,7 @@ class gpnn:
                 noise = np.random.normal(0, config['sigma'], (self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
                 self.coarse_img = self.x_pyramid[-1][None,...] + noise
             else:
-                assert len(self.x_pyramid[-1]) == 4
+                assert len(self.x_pyramid[-1].shape) == 4
                 noise = config['sigma']*torch.randn((self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
                 self.coarse_img = self.x_pyramid[-1] + noise
 
@@ -247,7 +247,8 @@ class gpnn:
         if False:
             y = np.array([combine_patches(v, patch_size, stride, x_scaled.shape) for v in values])
         else:
-            y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape,as_np=False) for v in values],dim=0)
+            assert len(x_scaled.shape) == 4
+            y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3],as_np=False) for v in values],dim=0)
         if other_x is not None:
             # assert isinstance(other_x,torch.Tensor)
             other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape,as_np=False)
