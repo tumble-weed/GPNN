@@ -6,6 +6,8 @@ from torch.nn.functional import fold, unfold
 from .utils import *
 from .pca import PCA
 import faiss.contrib.torch_utils
+import kornia as K
+from kornia.geometry.transform.pyramid import pyrdown
 tensor_to_numpy = lambda t:t.detach().cpu().numpy()
 TODO = None
 class gpnn:
@@ -59,13 +61,20 @@ class gpnn:
         if config['out_size'] != 0:
             if self.input_img.shape[0] > config['out_size']:
                 self.input_img = rescale(self.input_img, config['out_size'] / self.input_img.shape[0], multichannel=True)
-
+        self.input_img_tensor = torch.tensor(self.input_img).float().to(device).permute(2,0,1).unsqueeze(0)
         # pyramids
         pyramid_depth = np.log(min(self.input_img.shape[:2]) / min(self.COARSE_DIM)) / np.log(self.R)
         self.add_base_level = True if np.ceil(pyramid_depth) > pyramid_depth else False
         pyramid_depth = int(np.ceil(pyramid_depth))
-        self.x_pyramid = list(
-            tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+
+        # self.x_pyramid = list(
+        #     tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
+
+        self.x_pyramid = [pyrdown(self.input_img_tensor, 
+                                border_type = 'reflect', 
+                                align_corners = False, 
+                                factor = self.R ** i).permute(0,2,3,1) for i in range(pyramid_depth)]
+        import pdb;pdb.set_trace()
         #============================================
         self.other_x = torch.ones(1,1,*self.input_img.shape[:2]).float().to(device)
         self.other_x_pyramid = list(
@@ -80,7 +89,7 @@ class gpnn:
         # filename = os.path.splitext(os.path.basename(img_path))[0]
         filename = 'out_img'
         self.out_file = os.path.join(config['out_dir'], "%s_%s.png" % (filename, config['task']))
-        self.batch_size = 20
+        self.batch_size = 100
         # coarse settings
         if config['task'] == 'random_sample':
             noise = np.random.normal(0, config['sigma'], (self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
@@ -196,7 +205,7 @@ class gpnn:
                 keys_proj = keys_flat
             n_patches = keys_flat.shape[-1]
             print(n_patches)
-            import pdb;pdb.set_trace()
+            # import pdb;pdb.set_trace()
             self.index = faiss.IndexFlatL2(keys_proj.shape[-1])
             # import pdb;pdb.set_trace()
             print('created index')
