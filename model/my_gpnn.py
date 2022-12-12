@@ -104,6 +104,7 @@ class gpnn:
             else:
                 assert len(self.x_pyramid[-1].shape) == 4
                 noise = config['sigma']*torch.randn((self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
+                noise = noise.to(device)
                 self.coarse_img = self.x_pyramid[-1] + noise
 
         elif config['task'] == 'structural_analogies':
