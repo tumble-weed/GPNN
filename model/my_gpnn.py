@@ -61,6 +61,9 @@ class gpnn:
         if isinstance(config['input_img'],str):
             self.input_img = img_read(img_path)
 
+        if 'float' not in str(self.input_img.dtype):
+            self.input_img = self.input_img/255.
+
         
         
         if config['out_size'] != 0:
@@ -72,12 +75,12 @@ class gpnn:
         self.add_base_level = True if np.ceil(pyramid_depth) > pyramid_depth else False
         pyramid_depth = int(np.ceil(pyramid_depth))
 
-        # self.x_pyramid = list(
+        # self.x_pyramid0 = list(
         #     tuple(pyramid_gaussian(self.input_img, pyramid_depth, downscale=self.R, multichannel=True)))
-
+        
         self.x_pyramid = [pyrdown(self.input_img_tensor, 
                                 border_type = 'reflect', 
-                                align_corners = False, 
+                                align_corners = True, 
                                 factor = self.R ** i).permute(0,2,3,1) for i in range(pyramid_depth)]
         # import pdb;pdb.set_trace()
         #============================================
@@ -187,6 +190,10 @@ class gpnn:
 
     def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,
         other_x=None,extra_return={}):
+        assert (x.max() <= 1.) and (x.min() >= 0.)
+        assert (x_scaled.max() <= 1.) and (x_scaled.min() >= 0.)
+        # y_scaled has noise added, so will have >1 and <0 values
+        # assert (y_scaled.max() <= 1.) and (y_scaled.min() >= 0.)
         other_x = None;print('setting other_x to None forcefully')
         print('using faiss')
         print('this shouldnt be np.array but also work for tensor')
