@@ -1,3 +1,4 @@
+import tqdm
 import numpy as np
 import torch
 from skimage.transform.pyramids import pyramid_gaussian
@@ -81,7 +82,8 @@ class gpnn:
         self.x_pyramid = [pyrdown(self.input_img_tensor, 
                                 border_type = 'reflect', 
                                 align_corners = True, 
-                                factor = self.R ** i).permute(0,2,3,1) for i in range(pyramid_depth)]
+                                factor = self.R ** i).permute(0,2,3,1) for i in range(1,pyramid_depth)]
+        self.x_pyramid.insert(0,self.input_img_tensor.permute(0,2,3,1))
         # import pdb;pdb.set_trace()
         #============================================
         self.other_x = torch.ones(1,1,*self.input_img.shape[:2]).float().to(device)
@@ -133,8 +135,9 @@ class gpnn:
         print('init done')
 
     def run(self, to_save=True):
-        import tqdm
-        for i in tqdm.tqdm_notebook(reversed(range(len(self.x_pyramid)))):
+        
+        # for i in tqdm.tqdm_notebook(reversed(range(len(self.x_pyramid)))):
+        for i in tqdm.tqdm(reversed(range(len(self.x_pyramid)))):
             if i == len(self.x_pyramid) - 1:
                 queries = self.coarse_img
                 keys = self.x_pyramid[i]
@@ -148,7 +151,8 @@ class gpnn:
                 # keys = resize(self.x_pyramid[i + 1], self.x_pyramid[i].shape)
                 keys = resize_bhwc(self.x_pyramid[i + 1],self.x_pyramid[i].shape[1:3])
             new_keys = True
-            for j in tqdm.tqdm_notebook(range(self.T)):
+            # for j in tqdm.tqdm_notebook(range(self.T)):
+            for j in tqdm.tqdm(range(self.T)):                
                 if self.is_faiss:
                     self.y_pyramid[i] = self.PNN_faiss(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
                                                        self.ALPHA, mask=None, new_keys=new_keys,
@@ -170,12 +174,16 @@ class gpnn:
         return self.y_pyramid[0]
 
     # def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
-    #     queries = extract_patches(y_scaled, patch_size, stride)
+    #     # queries = extract_patches(y_scaled, patch_size, stride)
+    #     queries = torch.stack([extract_patches(ys, patch_size, stride) for ys in y_scaled],dim=0)
     #     keys = extract_patches(x_scaled, patch_size, stride)
     #     values = extract_patches(x, patch_size, stride)
+        
     #     if mask is None:
-    #         dist = torch.cdist(queries.view(len(queries), -1), keys.view(len(keys), -1))
+    #         assert queries.ndim == 5
+    #         dist = torch.cdist(queries.view(queries.shape[0]*queries.shape[1], -1), keys.view(len(keys), -1))
     #     else:
+    #         assert False,'not implemented'
     #         m_queries, m_keys = queries[mask], keys[~mask]
     #         dist = torch.cdist(m_queries.view(len(m_queries), -1), m_keys.view(len(m_keys), -1))
     #     norm_dist = (dist / (torch.min(dist, dim=0)[0] + alpha))  # compute_normalized_scores
@@ -185,7 +193,14 @@ class gpnn:
     #     else:
     #         values[mask] = values[~mask][NNs]
     #         # O = values[NNs]  # replace_NNs(values, NNs)
-    #     y = combine_patches(values, patch_size, stride, x_scaled.shape)
+    #     # assert values.ndim == 5
+    #     # assert values.shape[0] == 1
+    #     # values = values.squeeze()
+    #     values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
+    #     #====================================================================            
+    #     # y = combine_patches(values, patch_size, stride, x_scaled.shape)
+    #     assert len(x_scaled.shape) == 4
+    #     y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3]+(3,),as_np=False) for v in values],dim=0)        
     #     return y
 
     def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,
@@ -256,7 +271,18 @@ class gpnn:
         assert values.ndim == 5
         assert values.shape[0] == 1
         values = values.squeeze()
-        values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
+        # import pdb;pdb.set_trace()
+        if 'hardcoded' and False:
+            values = torch.tile(keys,(100,1,1,1));
+            print('hardcoding values')
+            values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
+        if 'check' and False:
+            chosen_keys = keys[I.T]
+            chosen_keys = chosen_keys.squeeze()
+            d0 = (chosen_keys[keys.shape[0]*0:keys.shape[0]*(0+1)] - keys).abs()
+            diffs = [(chosen_keys[keys.shape[0]*ii:keys.shape[0]*(ii+1)] - keys).abs().sum() for ii in range(self.batch_size) ]
+            flags = [torch.isclose(d,torch.zeros_like(d)) for d in diffs]
+            assert all(flags)
         #====================================================================
         # import pdb;pdb.set_trace()
         if False:
@@ -306,6 +332,7 @@ def combine_patches_tensor(O, patch_size, stride, img_shape):
 
     divisor[divisor == 0] = 1.0
     combined =  (combined / divisor).squeeze(dim=0).permute(1, 2, 0)
+    import pdb;pdb.set_trace()
     # convert from hwc to bchw format
     '''
     if False:
