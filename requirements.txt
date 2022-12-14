@@ -7,3 +7,4 @@ kornia==0.6.5
 #faiss
 matplotlib
 tqdm
+grad-cam
