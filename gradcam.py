@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import torch
 from torchvision.transforms import Compose, Normalize, ToTensor
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 import os 
 
 
@@ -30,8 +31,8 @@ def normalize_tensor(t,vgg_mean=[0.485, 0.456, 0.406],
 def gradcam(img_tensor,target = None,target_layers=target_layers):
     
     input_tensor = normalize_tensor(img_tensor)
-    from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
-    targets = [ClassifierOutputTarget(target)]
+    
+    targets = [ClassifierOutputTarget(target) for _ in range(img_tensor.shape[0])]
     with GradCAM(model=model,
                 target_layers=target_layers,
                 use_cuda= ('cuda' in str(img_tensor.device))) as cam:
