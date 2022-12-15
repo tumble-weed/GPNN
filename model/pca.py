@@ -16,18 +16,25 @@ class PCA:
 
     def fit(self, x):
         assert len(x.shape) == 2
-        assert x.dtype == 'float32'
+        # assert x.dtype == 'float32'
         n, d = x.shape
 
         # TODO: Check if fits in GPU, Implement incremental PCA
-        _x = torch.from_numpy(x)
+        if not isinstance(x,torch.Tensor):
+            _x = torch.from_numpy(x)
+        else:
+            _x = x
         _mu = _x.mean(dim=0, keepdim=True)
         Z, S, V = torch.pca_lowrank((_x-_mu).cuda(), q=self.n_components, niter=3, center=False)
         # Z, S, V = torch.pca_lowrank((_x-_mu), q=self.n_components, niter=3, center=False)
+        '''
         self.mean_ = _mu.numpy()
         self.components_ = V.cpu().numpy().T
         self.explained_variance_ = np.square(S.cpu().numpy()) / (n-1)
-
+        '''
+        self.mean_ = _mu
+        self.components_ = V.T
+        self.explained_variance_ = torch.square(S) / (n-1)        
         return self
 
     def fit_transform(self, x):
