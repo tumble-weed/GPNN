@@ -61,7 +61,8 @@ class gpnn:
         
         if isinstance(config['input_img'],str):
             self.input_img = img_read(img_path)
-
+        # self.input_img = self.input_img[:100,:100]
+        # import pdb;pdb.set_trace()
         if 'float' not in str(self.input_img.dtype):
             self.input_img = self.input_img/255.
 
@@ -100,7 +101,7 @@ class gpnn:
         # filename = os.path.splitext(os.path.basename(img_path))[0]
         filename = 'out_img'
         self.out_file = os.path.join(config['out_dir'], "%s_%s.png" % (filename, config['task']))
-        self.batch_size = 33
+        self.batch_size = 100
         # coarse settings
         if config['task'] == 'random_sample':
             if isinstance(self.x_pyramid[-1],np.ndarray):
@@ -395,6 +396,7 @@ def combine_patches_tensor(O, patch_size, stride, img_shape):
 
 def extract_patches(src_img, patch_size, stride):
     channels = src_img.shape[-1]
+    assert channels in [1,3]
     if not isinstance(src_img,torch.Tensor) and not len(src_img.shape) == 4:
         img = torch.from_numpy(src_img).to(device).unsqueeze(0).permute(0, 3, 1, 2)
     else:
@@ -414,7 +416,7 @@ def compute_distances(queries, keys):
     return dist_mat
 
 
-def combine_patches(O, patch_size, stride, img_shape,as_np = False):
+def combine_patches(O, patch_size, stride, img_shape,as_np = False,use_divisor=True):
     # channels = 3
     channels = O.shape[1]
     O = O.permute(1, 0, 2, 3).unsqueeze(0)
@@ -429,6 +431,9 @@ def combine_patches(O, patch_size, stride, img_shape,as_np = False):
     divisor = fold(divisor, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
 
     divisor[divisor == 0] = 1.0
+    if not use_divisor:
+        assert False,'this might be wrong'
+        divisor = torch.ones_like(divisor)
     if as_np:
         return (combined / divisor).squeeze(dim=0).permute(1, 2, 0).cpu().numpy()
     else:
