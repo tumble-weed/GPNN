@@ -51,7 +51,7 @@ config = {
     #---------------------------------------------
 #     'input_img':original_im,
     'input_img':original_imname,
-    'batch_size':1,
+    'batch_size':32,
 }
 for d in ['output','camoutput','unpermuted_camsoutput','maskoutput']:
     os.system(f'rm -rf {d}')
@@ -168,14 +168,21 @@ assert torch.isclose(augmented_dummy.std(),torch.zeros_like(augmented_dummy.std(
 (augmented_dummy1).sum().backward()
 # import pdb;pdb.set_trace()
 assert augmented_dummy.min() != 0
+avg_cam = 0
+denom = 0
 for ii,(di,ddi) in enumerate(zip(dummy.grad,dummy1.grad)):
     # ddi = torch.ones_like(ddi)
     di = di/(ddi + (ddi==0).float())
-    di = tensor_to_numpy(di)[...,0]
+    di_ = tensor_to_numpy(di)[...,0]
     # denom = di
     # assert di.max() >= 0
     # di = di/di.max()
-    img_save(di, 'unpermuted_cams'+model.out_file[:-len('.png')] + str(ii) + '.png' )
+    img_save(di_, 'unpermuted_cams'+model.out_file[:-len('.png')] + str(ii) + '.png' )
+    avg_cam = avg_cam + (di * ddi)
+    denom = denom + ddi
+avg_cam = avg_cam / denom
+avg_cam_ = tensor_to_numpy(avg_cam)[...,0]
+img_save(avg_cam_, 'unpermuted_cams'+model.out_file[:-len('.png')] + 'avg' + '.png' )
 if False:
     plt.figure()
     plt.imshow(np.array(original_im[...,:3]))
