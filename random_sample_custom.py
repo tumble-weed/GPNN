@@ -15,9 +15,12 @@ import gradcam
 from model.utils import *
 
 
-original_imname = 'images/ILSVRC2012_val_00000013.JPEG'
+# original_imname = 'images/ILSVRC2012_val_00000013.JPEG'; imagenet_target=370
 # original_imname = 'database/balloons.png'
 # original_imname = 'database/volacano.png'
+# original_imname = 'images/cars.png'; imagenet_target = 751
+# original_imname = 'images/n01443537_16.JPEG'; imagenet_target = 1
+original_imname = 'images/data/feature_inversion/building.jpg'; imagenet_target = 538
 
 output_imname = os.path.join('output',os.path.basename(original_imname))
 output_imname_root,ext = output_imname.split('.')
@@ -51,7 +54,7 @@ config = {
     #---------------------------------------------
 #     'input_img':original_im,
     'input_img':original_imname,
-    'batch_size':32,
+    'batch_size':100,
 }
 for d in ['output','camoutput','unpermuted_camsoutput','maskoutput']:
     os.system(f'rm -rf {d}')
@@ -64,7 +67,7 @@ if False and 'identity I':
     I = I[:,None]
 extra_for_cam = {}
 # import pdb;pdb.set_trace()
-cams,scores,probs = gradcam.gradcam(augmentations.permute(0,3,1,2),target=370)
+cams,scores,probs = gradcam.gradcam(augmentations.permute(0,3,1,2),target=imagenet_target)
 full_shape = cams.shape[1:]
 valid_shape_for_ps1 = full_shape[0] - 2*(model.PATCH_SIZE[0]//2),full_shape[1] - 2*(model.PATCH_SIZE[0]//2)
 # cams =  np.ones((cams.shape[0],)+full_shape)
@@ -178,11 +181,16 @@ for ii,(di,ddi) in enumerate(zip(dummy.grad,dummy1.grad)):
     # assert di.max() >= 0
     # di = di/di.max()
     img_save(di_, 'unpermuted_cams'+model.out_file[:-len('.png')] + str(ii) + '.png' )
-    avg_cam = avg_cam + (di * ddi)
-    denom = denom + ddi
+    avg_cam = avg_cam + (di * ddi) * probs[ii]
+    denom = (denom + ddi * probs[ii])
 avg_cam = avg_cam / denom
 avg_cam_ = tensor_to_numpy(avg_cam)[...,0]
 img_save(avg_cam_, 'unpermuted_cams'+model.out_file[:-len('.png')] + 'avg' + '.png' )
+sampling = denom/dummy1.grad.shape[0]
+sampling = sampling/sampling.max()
+import pdb;pdb.set_trace()
+img_save(tensor_to_numpy(sampling), 
+         os.path.join('output','sampling.png') )
 if False:
     plt.figure()
     plt.imshow(np.array(original_im[...,:3]))
