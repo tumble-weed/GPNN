@@ -101,7 +101,7 @@ class gpnn:
         # filename = os.path.splitext(os.path.basename(img_path))[0]
         filename = 'out_img'
         self.out_file = os.path.join(config['out_dir'], "%s_%s.png" % (filename, config['task']))
-        self.batch_size = 100
+        self.batch_size = config['batch_size']
         # coarse settings
         if config['task'] == 'random_sample':
             if isinstance(self.x_pyramid[-1],np.ndarray):
@@ -192,6 +192,7 @@ class gpnn:
         if to_save:
             # if self.batch_size > 1:
             for ii,yi in enumerate(self.y_pyramid[0]):
+                # yi = (yi - yi.min())/(yi.max()-yi.min())
                 assert yi.shape[-1] == 3
                 img_save(tensor_to_numpy(yi), self.out_file[:-len('.png')] + str(ii) + '.png' )
                 mi = masks[i]
@@ -246,7 +247,12 @@ class gpnn:
         keys = extract_patches(x_scaled, patch_size, stride)
         # keys = keys[...,::2,::2]
         print('extracted keys')
-        values = extract_patches(x, patch_size, stride)
+        if True:
+            values = extract_patches(x, patch_size, stride)
+        else:
+            print('using laplacian pyramid')
+            x_high = x - x_scaled
+            values = extract_patches(x_high, patch_size, stride)
         if other_x is not None:
             other_values = extract_patches(other_x,patch_size, stride)
         print('extracted values')
@@ -327,6 +333,7 @@ class gpnn:
             values = torch.tile(keys,(100,1,1,1));
             print('hardcoding values')
         values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
+
         if 'check' and False:
             chosen_keys = keys[I.T]
             chosen_keys = chosen_keys.squeeze()
@@ -342,6 +349,10 @@ class gpnn:
             assert len(x_scaled.shape) == 4
             # import pdb;pdb.set_trace()
             y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3]+(3,),as_np=False) for v in values],dim=0)
+        if False:
+            # y = torch.clamp(y + y_scaled,0,1)            
+            y = (y + x_scaled); print('using laplacian pyramid')
+            # y = (y -y.min())/(y.max() -y.min())
         if other_x is not None:
             # assert isinstance(other_x,torch.Tensor)
             other_y = combine_patches(other_values, patch_size, stride, x_scaled.shape,as_np=False)

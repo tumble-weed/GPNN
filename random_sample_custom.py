@@ -15,9 +15,9 @@ import gradcam
 from model.utils import *
 
 
-# original_imname = 'images/ILSVRC2012_val_00000013.JPEG'
+original_imname = 'images/ILSVRC2012_val_00000013.JPEG'
 # original_imname = 'database/balloons.png'
-original_imname = 'database/volacano.png'
+# original_imname = 'database/volacano.png'
 
 output_imname = os.path.join('output',os.path.basename(original_imname))
 output_imname_root,ext = output_imname.split('.')
@@ -51,7 +51,7 @@ config = {
     #---------------------------------------------
 #     'input_img':original_im,
     'input_img':original_imname,
-
+    'batch_size':1,
 }
 for d in ['output','camoutput','unpermuted_camsoutput','maskoutput']:
     os.system(f'rm -rf {d}')
