@@ -62,7 +62,9 @@ with Timer('model run'):
 if False and 'identity I':
     I = torch.tile(torch.arange(I.max()+1).to('cuda'),(augmentations.shape[0],))
     I = I[:,None]
-cams = gradcam.gradcam(augmentations.permute(0,3,1,2),target=370)
+extra_for_cam = {}
+# import pdb;pdb.set_trace()
+cams,scores,probs = gradcam.gradcam(augmentations.permute(0,3,1,2),target=370)
 full_shape = cams.shape[1:]
 valid_shape_for_ps1 = full_shape[0] - 2*(model.PATCH_SIZE[0]//2),full_shape[1] - 2*(model.PATCH_SIZE[0]//2)
 # cams =  np.ones((cams.shape[0],)+full_shape)

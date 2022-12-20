@@ -36,11 +36,12 @@ def gradcam(img_tensor,target = None,target_layers=target_layers):
     with GradCAM(model=model,
                 target_layers=target_layers,
                 use_cuda= ('cuda' in str(img_tensor.device))) as cam:
-
+        extra = {}
         cam.batch_size = 32
         grayscale_cam0 = cam(input_tensor=input_tensor,
-                            targets=targets)
-    return grayscale_cam0
+                            targets=targets,
+                            extra=extra)
+    return grayscale_cam0,extra['scores'],extra['probs']
 
 if __name__ == '__main__':
     model = resnet50(pretrained=True)
