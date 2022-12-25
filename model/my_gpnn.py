@@ -140,7 +140,8 @@ class gpnn:
         # for i in tqdm.tqdm_notebook(reversed(range(len(self.x_pyramid)))):
         for i in tqdm.tqdm(reversed(range(len(self.x_pyramid)))):
             if i == len(self.x_pyramid) - 1:
-                queries = self.coarse_img
+                print('flipping initial image')
+                queries = self.coarse_img.flip(-1)
                 keys = self.x_pyramid[i]
             else:
                 # queries = np.array([resize(yp, self.x_pyramid[i].shape) for yp in self.y_pyramid[i + 1]])
@@ -324,16 +325,19 @@ class gpnn:
             # import pdb;pdb.set_trace()
             values = values[I.T]
             #O = values[I.T]
+        # print('see D shape')
+        # import pdb;pdb.set_trace()        
         
         assert values.ndim == 5
         assert values.shape[0] == 1
+
         values = values.squeeze()
         # import pdb;pdb.set_trace()
         if 'hardcoded' and False:
             values = torch.tile(keys,(100,1,1,1));
             print('hardcoding values')
         values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
-
+        distances = D.reshape(queries.shape[0],D.shape[0]//queries.shape[0],1,1,1)
         if 'check' and False:
             chosen_keys = keys[I.T]
             chosen_keys = chosen_keys.squeeze()
@@ -348,7 +352,9 @@ class gpnn:
         else:
             assert len(x_scaled.shape) == 4
             # import pdb;pdb.set_trace()
-            y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3]+(3,),as_np=False) for v in values],dim=0)
+            y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3]+(3,),as_np=False,
+                                             divisor_strategy='distance-weighted',
+                                             distances=d) for v,d in zip(values,distances)],dim=0)
         if False:
             # y = torch.clamp(y + y_scaled,0,1)            
             y = (y + x_scaled); print('using laplacian pyramid')
@@ -363,7 +369,7 @@ class gpnn:
         if 1 in y.shape[1:3]:
             import pdb;pdb.set_trace()
         return y,I
-
+"""
 def combine_patches_tensor(O, patch_size, stride, img_shape):
     
     assert img_shape.__len__() == 4
@@ -404,7 +410,7 @@ def combine_patches_tensor(O, patch_size, stride, img_shape):
     combined = combined.permute(2,0,1)[None,...]
     # print('fake return from combine_patches'); return torch.zeros(img_shape).to(device)
     return combined
-
+"""
 def extract_patches(src_img, patch_size, stride):
     channels = src_img.shape[-1]
     assert channels in [1,3]
@@ -427,21 +433,83 @@ def compute_distances(queries, keys):
     return dist_mat
 
 
-def combine_patches(O, patch_size, stride, img_shape,as_np = False,use_divisor=True):
+def combine_patches(O, patch_size, stride, img_shape,as_np = False,use_divisor=True,divisor_strategy='uniform',distances=None):
     # channels = 3
     channels = O.shape[1]
     O = O.permute(1, 0, 2, 3).unsqueeze(0)
-    patches = O.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
+    # O[:,0] = 1
+    # O[:,1] = 2
+    # O[:,2] = 3
+    divisor_strategy = 'uniform'
+    print('setting divisor_strategy to uniform')
+
+    if divisor_strategy == 'uniform':
+        patches = O.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
         .permute(0, 1, 3, 2) \
         .contiguous().view(1, channels * patch_size[0] * patch_size[0], -1)
-    combined = fold(patches, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+        combined = fold(patches, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+        # normal fold matrix
+        input_ones = torch.ones((1, img_shape[2], img_shape[0], img_shape[1]), dtype=O.dtype, device=device)
+        divisor = unfold(input_ones, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0))
+        divisor = fold(divisor, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
 
-    # normal fold matrix
-    input_ones = torch.ones((1, img_shape[2], img_shape[0], img_shape[1]), dtype=O.dtype, device=device)
-    divisor = unfold(input_ones, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0))
-    divisor = fold(divisor, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+        divisor[divisor == 0] = 1.0
 
-    divisor[divisor == 0] = 1.0
+    elif divisor_strategy == 'distance-weighted':
+        assert distances is not None
+        assert distances.shape[-2:] == (1,1)
+        distances = distances.permute(1, 0, 2, 3).unsqueeze(0)
+
+        if False:
+            distances = distances * torch.ones_like(O)
+            
+            weights = distances
+            if False:
+                # print('hard coding distances denom')
+                # weights = torch.exp(-distances/200.)
+                pass
+            weighted = O*weights
+            # import pdb;pdb.set_trace()
+            weighted_patches = weighted.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
+            .permute(0, 1, 3, 2) \
+            .contiguous().view(1, channels * patch_size[0] * patch_size[0], -1)
+            combined = fold(weighted_patches, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+            #================================================
+            weights = weights.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
+            .permute(0, 1, 3, 2) \
+            .contiguous().view(1, channels * patch_size[0] * patch_size[0], -1)
+            divisor = fold(weights, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+            #================================================
+        else:
+            distances = distances * torch.ones_like(O[:,:1])
+            # weights = distances
+            if False:
+                # print('hard coding distances denom')
+                # weights = torch.exp(-distances/200.)
+                pass
+            distances = O[:,:1]*distances
+            # 1,3,64,7,7
+            # import pdb;pdb.set_trace()            
+            patches = O.contiguous().view(O.shape[0], O.shape[1], O.shape[2], -1) \
+                .permute(0, 1, 3, 2) \
+                .contiguous().view(1, channels * patch_size[0] * patch_size[0], -1)
+            distances = distances.contiguous().view(distances.shape[0], distances.shape[1], distances.shape[2], -1) \
+                .permute(0, 1, 3, 2) \
+                .contiguous().view(1, 1 * patch_size[0] * patch_size[0], -1)
+            if False:
+                weights = torch.exp(-distances/(1e-4 + 10*distances.mean(dim=1,keepdim=True)))
+            else:
+                weights = torch.exp(-distances/(1e-4 + 10))
+                
+            weighted_patches = torch.tile(weights,(1,channels,1)) * patches
+            # 1,49,64
+            combined = fold(weighted_patches, output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+            divisor = fold(torch.tile(weights,(1,channels,1)), output_size=img_shape[:2], kernel_size=patch_size, stride=stride)
+            # import pdb;pdb.set_trace()  
+            assert not torch.isclose(divisor,torch.zeros_like(divisor)).any()          
+            assert not divisor.isnan().any() and not combined.isnan().any()
+            #================================================
+        # import pdb;pdb.set_trace()
     if not use_divisor:
         assert False,'this might be wrong'
         divisor = torch.ones_like(divisor)
@@ -449,7 +517,9 @@ def combine_patches(O, patch_size, stride, img_shape,as_np = False,use_divisor=T
         return (combined / divisor).squeeze(dim=0).permute(1, 2, 0).cpu().numpy()
     else:
         # import pdb;pdb.set_trace()
-        return (combined / divisor).squeeze(dim=0).permute(1, 2, 0)
+        out = (combined / divisor).squeeze(dim=0).permute(1, 2, 0)
+        print(out.max())
+        return out
 
 config = {
     'out_dir':None,
