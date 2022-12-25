@@ -20,19 +20,33 @@ def preprocess_image(
         Normalize(mean=mean, std=std)
     ])
     return preprocessing(img.copy())
-model = resnet50(pretrained=True)
-target_layers = [model.layer4]
+
 def normalize_tensor(t,vgg_mean=[0.485, 0.456, 0.406],
                      vgg_std=[0.229, 0.224, 0.225]):
     device = t.device
     out = (t - torch.tensor(vgg_mean).to(device)[None,:,None,None])/torch.tensor(vgg_std).to(device)[None,:,None,None]
     return out
     
-def gradcam(img_tensor,target = None,target_layers=target_layers):
+def gradcam(img_tensor,target = None,model_type='voc2007'):
     
     input_tensor = normalize_tensor(img_tensor)
     
     targets = [ClassifierOutputTarget(target) for _ in range(img_tensor.shape[0])]
+    
+    global model,target_layers
+    if 'model' not in globals():
+        if model_type == 'voc2007':
+            import architectures.vgg16
+            # model = architectures.vgg16.vgg16(pretrained=True)
+            model = architectures.get_model(arch='vgg16',
+                   dataset='voc',
+                   convert_to_fully_convolutional=True)
+            print('TODO:is it the maxpool layer for vgg16? ')
+            print('TODO: move loading the model to outside (global')
+            target_layers = [model.features[-1]]
+        elif model_type == 'imagenet':
+            model = resnet50(pretrained=True)
+            target_layers = [model.layer4]
     with GradCAM(model=model,
                 target_layers=target_layers,
                 use_cuda= ('cuda' in str(img_tensor.device))) as cam:
