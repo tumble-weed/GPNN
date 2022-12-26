@@ -34,7 +34,8 @@ from model.my_gpnn import gpnn
 im = skimage.io.imread(original_imname)
 if im.ndim == 3 and im.shape[-1] > 3:
     im = im[...,:-1]
-overshoot = min(im.shape[:2])/256
+target_size = 256
+overshoot = min(im.shape[:2])/target_size
 resize_aspect_ratio = 1/overshoot
 print(im.shape)
 
@@ -54,8 +55,8 @@ config = {
     # 'patch_size':15,
     'stride':1,
     'pyramid_ratio':4/3,
-    'faiss':True,
-    # 'faiss':False,
+    # 'faiss':True,
+    'faiss':False,
     'no_cuda':False,
     #---------------------------------------------
     'in':None,
@@ -66,7 +67,7 @@ config = {
     #---------------------------------------------
     # 'input_img':original_imname,
     'input_img':im,
-    'batch_size':10,
+    'batch_size':1,
 }
 for d in ['output','camoutput','unpermuted_camsoutput','maskoutput']:
     os.system(f'rm -rf {d}')
@@ -74,10 +75,12 @@ model = gpnn(config)
 with Timer('model run'):
     augmentations,I = model.run(to_save=True)
 # import pdb;pdb.set_trace()
+for i,aug in enumerate(augmentations):
+    img_save(tensor_to_numpy(aug.permute(1,2,0)), model.out_file[:-len('.png')] + str(i) + '.png' )
 if False and 'identity I':
     I = torch.tile(torch.arange(I.max()+1).to('cuda'),(augmentations.shape[0],))
     I = I[:,None]
-
+assert False
 # import torch
 torch.cuda.empty_cache()
 if 'gradcam' and True:
