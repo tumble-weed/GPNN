@@ -15,6 +15,7 @@ class PCA:
         self.explained_variance_ = None
 
     def fit(self, x):
+        device = x.device
         assert len(x.shape) == 2
         # assert x.dtype == 'float32'
         n, d = x.shape
@@ -25,7 +26,7 @@ class PCA:
         else:
             _x = x
         _mu = _x.mean(dim=0, keepdim=True)
-        Z, S, V = torch.pca_lowrank((_x-_mu).cuda(), q=self.n_components, niter=3, center=False)
+        Z, S, V = torch.pca_lowrank((_x-_mu).to(device), q=self.n_components, niter=3, center=False)
         # Z, S, V = torch.pca_lowrank((_x-_mu), q=self.n_components, niter=3, center=False)
         '''
         self.mean_ = _mu.numpy()

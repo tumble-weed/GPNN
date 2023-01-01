@@ -9,8 +9,15 @@ from .pca import PCA
 import faiss.contrib.torch_utils
 import kornia as K
 from kornia.geometry.transform.pyramid import pyrdown
+from eutils.NN_modules import PytorchNNLowMemory
 tensor_to_numpy = lambda t:t.detach().cpu().numpy()
 TODO = None
+def cat_lr_flip(t):
+    print('appending lr flips')
+    assert t.shape[-1] == 7
+    t = torch.cat([t,t.flip((-1,))],dim=0)
+    # import pdb;pdb.set_trace()
+    return t
 def resize_bhwc(bhwc,size):
     bchw = bhwc.permute(0,3,1,2)
     bchw_r = torch.nn.functional.interpolate(bchw,size)
@@ -18,6 +25,12 @@ def resize_bhwc(bhwc,size):
     return bhwc_r
 class gpnn:
     def __init__(self, config):
+        self.IMPLEMENTATION = config['implementation']
+        self.INIT_FROM = config['init_from']
+        self.KEYS_TYPE = config['keys_type']
+        # pca settings
+        self.N_PCA_COMPONENTS = config['n_pca_components']
+        self.USE_PCA = config['use_pca']
         # general settings
         self.T = config['iters']
         self.PATCH_SIZE = (config['patch_size'], config['patch_size'])
@@ -106,12 +119,21 @@ class gpnn:
         if config['task'] == 'random_sample':
             if isinstance(self.x_pyramid[-1],np.ndarray):
                 noise = np.random.normal(0, config['sigma'], (self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
-                self.coarse_img = self.x_pyramid[-1][None,...] + noise
+                self.coarse_img = noise
+
+                if self.INIT_FROM == 'target':
+                    self.coarse_img = self.coarse_img + noise
+                
             else:
                 assert len(self.x_pyramid[-1].shape) == 4
                 noise = config['sigma']*torch.randn((self.batch_size,)+ self.COARSE_DIM)[..., np.newaxis]
                 noise = noise.to(device)
-                self.coarse_img = self.x_pyramid[-1] + noise
+                self.coarse_img = noise
+                if self.INIT_FROM == 'target':
+                    # assert False
+                    self.coarse_img = self.x_pyramid[-1] + noise
+                elif self.INIT_FROM == 'zeros':
+                    self.coarse_img = torch.zeros_like(self.x_pyramid[-1]) + noise
 
         elif config['task'] == 'structural_analogies':
             assert False,'not implemented'
@@ -131,14 +153,48 @@ class gpnn:
                 mask = torch.all(mask, dim=1)
                 self.mask_pyramid[i] = mask
         assert len(self.coarse_img.shape) == 4
-        self.n_pca_components = 20
-        self.use_pca = True
+
+        self.running_keys = None
+        self.running_values = None
+        self.resolution =None
+        self.n_keys = {}
         print('init done')
 
     def run(self, to_save=True):
-        
+        if self.IMPLEMENTATION == 'efficient-gpnn':
+
+            from model.efficient_gpnn import generate
+            # nn_module
+            nn_module = PytorchNNLowMemory(alpha=self.ALPHA, use_gpu=True)
+            assert self.input_img_tensor.max() <= 1
+            scales = [int(min(self.input_img_tensor.shape[-2:])*((3/4)**factor)) for factor in range(11)]
+            scales = list(reversed(scales))
+            scales = [s for s in scales if s>= 14]
+            # scales = [128]
+            # import pdb;pdb.set_trace()
+            return generate(
+                # self.x_pyramid,
+                # self.input_img,
+                self.input_img_tensor,
+                # 2*self.input_img_tensor - 1,
+                nn_module,
+                patch_size=7,
+                stride=1,
+                init_from =  self.INIT_FROM,#'target',#
+                pyramid_scales=scales,
+                #  pyramid_scales=(14,25,45,60,81),
+                aspect_ratio=(1, 1),
+                additive_noise_sigma=1*0.75,
+                num_iters = 10,
+                initial_level_num_iters = 1,
+                keys_blur_factor=1,
+                device=torch.device("cuda"),
+                debug_dir=None)
+
         # for i in tqdm.tqdm_notebook(reversed(range(len(self.x_pyramid)))):
         for i in tqdm.tqdm(reversed(range(len(self.x_pyramid)))):
+            if  i ==1:
+                torch.cuda.empty_cache()
             if i == len(self.x_pyramid) - 1:
                 print('flipping initial image')
                 queries = self.coarse_img.flip(-1)
@@ -167,7 +223,7 @@ class gpnn:
                     if i != 0:
                         del I
                 else:
-                    self.y_pyramid[i] = self.PNN(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
+                    self.y_pyramid[i],I = self.PNN(self.x_pyramid[i], keys, queries, self.PATCH_SIZE, self.STRIDE,
                                                  self.ALPHA)
 
                                 
@@ -177,20 +233,22 @@ class gpnn:
                     new_keys = False
             # import pdb;pdb.set_trace()
         #==========================================================
-        # for the masks
-        mask = torch.zeros(1,*self.y_pyramid[0].shape[1:3],1).to(device)
-        mask[:,:,torch.arange(mask.shape[-2]).to(device),:] = torch.linspace(0,1,mask.shape[-2]).to(device)[None,None,:,None]
-        mask_values = extract_patches(mask, self.PATCH_SIZE, self.STRIDE)
-        # import pdb;pdb.set_trace()
-        # mask_keys_flat = mask_keys.reshape((mask_keys.shape[0], -1)).contiguous()
-        mask_values = mask_values[I.T]
-        mask_values = mask_values.squeeze(0)
-        mask_values = mask_values.reshape(self.y_pyramid[0].shape[0],
-                                mask_values.shape[0]//self.y_pyramid[0].shape[0],*mask_values.shape[1:])
-        assert mask_values.ndim == 5,'1,npatches,nchan,7,7'
-        masks = torch.stack([combine_patches(v, self.PATCH_SIZE, self.STRIDE, mask.shape[1:3]+(3,),as_np=False) for v in mask_values],dim=0)
+        if False:
+            assert False,'untested for running-values'
+            # for the masks
+            mask = torch.zeros(1,*self.y_pyramid[0].shape[1:3],1).to(device)
+            mask[:,:,torch.arange(mask.shape[-2]).to(device),:] = torch.linspace(0,1,mask.shape[-2]).to(device)[None,None,:,None]
+            mask_values = extract_patches(mask, self.PATCH_SIZE, self.STRIDE)
+            # import pdb;pdb.set_trace()
+            # mask_keys_flat = mask_keys.reshape((mask_keys.shape[0], -1)).contiguous()
+            mask_values = mask_values[I.T]
+            mask_values = mask_values.squeeze(0)
+            mask_values = mask_values.reshape(self.y_pyramid[0].shape[0],
+                                    mask_values.shape[0]//self.y_pyramid[0].shape[0],*mask_values.shape[1:])
+            assert mask_values.ndim == 5,'1,npatches,nchan,7,7'
+            masks = torch.stack([combine_patches(v, self.PATCH_SIZE, self.STRIDE, mask.shape[1:3]+(3,),as_np=False) for v in mask_values],dim=0)
         #==========================================================
-        if to_save:
+        if to_save and False:
             # if self.batch_size > 1:
             for ii,yi in enumerate(self.y_pyramid[0]):
                 # yi = (yi - yi.min())/(yi.max()-yi.min())
@@ -198,8 +256,9 @@ class gpnn:
                 img_save(tensor_to_numpy(yi), self.out_file[:-len('.png')] + str(ii) + '.png' )
                 mi = masks[i]
                 img_save(tensor_to_numpy(mi), 'mask'+self.out_file[:-len('.png')] + str(ii) + '.png' )
-                
-        return self.y_pyramid[0],I
+        # import pdb;pdb.set_trace()
+        return self.y_pyramid[0].permute(0,3,1,2),I
+        # return self.y_pyramid[0],I
 
     def PNN(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None):
         # queries = extract_patches(y_scaled, patch_size, stride)
@@ -230,10 +289,15 @@ class gpnn:
         assert len(x_scaled.shape) == 4
         
         y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3]+(3,),as_np=False) for v in values],dim=0)        
-        return y
+        # NNs = torch.atleast_2d(NNs)
+        if NNs.ndim == 1:
+            NNs = NNs[:,None]
+        return y,NNs
 
     def PNN_faiss(self, x, x_scaled, y_scaled, patch_size, stride, alpha, mask=None, new_keys=True,
         other_x=None,extra_return={}):
+        if self.resolution == None:
+            self.resolution = x.shape
         assert (x.max() <= 1.) and (x.min() >= 0.)
         assert (x_scaled.max() <= 1.) and (x_scaled.min() >= 0.)
         # y_scaled has noise added, so will have >1 and <0 values
@@ -243,13 +307,36 @@ class gpnn:
         print('this shouldnt be np.array but also work for tensor')
         assert y_scaled[0].shape[-1] == 3
         queries = torch.stack([extract_patches(ys, patch_size, stride) for ys in y_scaled],dim=0)
+        from model.hog import gradient_histogram
+        
+        # import pdb;pdb.set_trace()
         # queries = queries[...,::2,::2]
         print('extracted query',queries.shape)
         keys = extract_patches(x_scaled, patch_size, stride)
+        use_lr_flip = False
+        if use_lr_flip:
+            keys = cat_lr_flip(keys)
         # keys = keys[...,::2,::2]
         print('extracted keys')
+        if x.shape not in self.n_keys:
+            self.n_keys[x.shape] = keys.shape[0]
         if True:
             values = extract_patches(x, patch_size, stride)
+            if use_lr_flip:
+                values = cat_lr_flip(values)
+
+                
+            # import pdb;pdb.set_trace()
+            if self.KEYS_TYPE == 'multi-resolution':
+                if new_keys:
+                    if self.running_values is None:
+                        self.running_values = values
+                    else:
+                        if self.running_values.shape[0] == sum(self.n_keys.values()):
+                            self.running_values[-self.n_keys[x.shape]:] = values
+                        else:
+                            self.running_values = torch.cat([self.running_values,values],dim=0)
+                        # self.running_values = self.running_values#[-values.shape[0]:]
         else:
             print('using laplacian pyramid')
             x_high = x - x_scaled
@@ -265,38 +352,56 @@ class gpnn:
 
         # queries_flat = np.ascontiguousarray(queries.reshape((queries.shape[0]*queries.shape[1], -1)).cpu().numpy(), dtype='float32')
         assert queries.ndim == 5
-        queries_flat = queries.reshape((queries.shape[0]*queries.shape[1], -1)).contiguous()
+        # queries_flat = queries.reshape((queries.shape[0]*queries.shape[1], -1)).contiguous()
+        queries_flat_batch = queries.flatten(start_dim=0,end_dim=1).contiguous()
 
-        # keys_flat = np.ascontiguousarray(keys.reshape((keys.shape[0], -1)).cpu().numpy(), dtype='float32')
+        # keys_flat = np.ascontiguousarray(keys.reshape((keys.shape[0], -1)).cpu().numpy(), dtype='float33142')
         assert keys.ndim == 4
-        keys_flat = keys.reshape((keys.shape[0], -1)).contiguous()
+        # keys_flat = keys.reshape((keys.shape[0], -1)).contiguous()
         # import pdb;pdb.set_trace()
-        if 'flipped patches' and False:
-            keys_flip = keys.flip(-1)
-            keys_flip_flat = keys_flip.reshape((keys.shape[0], -1)).contiguous()
-            keys_flat = torch.cat([keys_flat,keys_flip_flat],dim=0)
-            
-            values_flip = values.flip(-1)
-            # values_flip_flat = values_flip.reshape((values.shape[0], -1)).contiguous()
-            # values_flat = torch.cat([values_flat,values_flip_flat],dim=0)            
-            values = torch.cat([values,values_flip],dim=0)
+
         if new_keys:
-            if self.use_pca:
-                self.pca = PCA(self.n_pca_components)
-                keys_proj = self.pca.fit_transform(keys_flat)
-                keys_proj = (keys_proj).contiguous()
-            else:
-                keys_proj = keys_flat
-            n_patches = keys_flat.shape[-1]
+            # keys_proj = keys_flat
+            keys_proj = self.get_feats(keys,init=True)
+            # import pdb;pdb.set_trace()
+            '''
+            if self.USE_PCA:
+                # keys_proj = self.fit_transform_pca(self.N_PCA_COMPONENTS,keys_proj)
+                keys_proj = self.get_pca_feats(keys_proj,n_pca_components = self.N_PCA_COMPONENTS,init=True)
+            '''
+            #==================================================
+            if self.KEYS_TYPE == 'multi-resolution':
+                if self.running_keys is not None:
+                    # assert False
+                    if self.running_keys.shape[0] == sum(self.n_keys.values()):
+                        self.running_keys[-self.n_keys[x.shape]:] = keys_proj
+                    else:
+                        self.running_keys = torch.cat([self.running_keys,keys_proj],dim=0)
+                    # self.running_keys =self.running_keys[-keys_proj.shape[0]:]
+                else:
+                    self.running_keys = keys_proj
+                # import pdb;pdb.set_trace()
+            #==================================================
+            
+            n_patches = keys_proj.shape[0]
             print(n_patches)
             # import pdb;pdb.set_trace()
-            if True and 'simple':
+            if False and 'simple':
                 self.index = faiss.IndexFlatL2(keys_proj.shape[-1])
-            elif False and 'ivf':
+            elif True and 'ivf':
+                print('using ivf')
                 nlist = 64
-                quantizer = faiss.IndexFlatL2(keys_proj.shape[-1])  # the other index
-                self.index = faiss.IndexIVFFlat(quantizer, keys_proj.shape[-1], nlist)
-                self.index.nprobe = 1
+                print(keys_proj.shape)
+                if self.KEYS_TYPE == 'single-resolution':
+                    quantizer = faiss.IndexFlatL2(keys_proj.shape[-1])  # the other index
+                    # import pdb;pdb.set_trace()
+                    self.index = faiss.IndexIVFFlat(quantizer, keys_proj.shape[-1], nlist)
+                    self.index.nprobe = 1
+                elif self.KEYS_TYPE == 'multi-resolution':
+                    print('using running keys')
+                    quantizer = faiss.IndexFlatL2(self.running_keys.shape[-1])  # the other index
+                    self.index = faiss.IndexIVFFlat(quantizer, self.running_keys.shape[-1], nlist)
+                    self.index.nprobe = 1
             else:
                 print('using smaller code length')
                 self.index = faiss.IndexFlatL2(10)
@@ -306,16 +411,37 @@ class gpnn:
             if torch.cuda.is_available():
                 self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
             print('pushed index to gpu')
-            self.index.train(keys_proj)
-            self.index.add(keys_proj)
-        if self.use_pca:
-            queries_proj = self.pca.transform(queries_flat)
-            queries_proj = (queries_proj).contiguous()
-        else:
-            queries_proj = queries_flat
+            if self.KEYS_TYPE ==  'single-resolution':
+                self.index.train(keys_proj)
+                self.index.add(keys_proj)
+            elif self.KEYS_TYPE ==  'multi-resolution':
+                self.index.train(self.running_keys)
+                self.index.add(self.running_keys)                
+        '''
+        queries_proj = queries_flat
+        queries_proj = self.get_feats(queries_proj,init=False)
+        '''
+        queries_proj = self.get_feats(queries_flat_batch,init=False)
         print('searching')
         # import pdb;pdb.set_trace()
-        D, I = self.index.search(queries_proj, 1)
+        print(queries_proj.shape)
+        if queries_proj.shape[0] > 62496:
+            batch_size = 62496
+            D = torch.zeros(queries_proj.shape[0],1,device=device)
+            I = torch.zeros(queries_proj.shape[0],1,device=device).long()
+            nbatches = (queries_proj.shape[0]+batch_size - 1)//batch_size
+            for i in range(nbatches):
+                queries_proji = queries_proj[i*batch_size:(i+1)*batch_size]
+                Di, Ii = self.index.search(queries_proji, 1)
+                D[i*batch_size:(i)*batch_size + Di.shape[0]] = Di
+                I[i*batch_size:(i)*batch_size + Ii.shape[0]] = Ii
+                # import pdb;pdb.set_trace()
+        else:
+            D, I = self.index.search(queries_proj, 1)
+        if False and keys.shape[0] > 100000:
+            print(keys.shape[0],I.shape,Ii.shape)
+            import time;time.sleep(5)
+            # import pdb;pdb.set_trace()
         # D1, I1 = self.index.search(queries_proj.cpu().numpy(), 1)
         # import pdb;pdb.set_trace()
         if mask is not None:
@@ -323,7 +449,12 @@ class gpnn:
             values[mask] = values[~mask][I.T]
         else:
             # import pdb;pdb.set_trace()
-            values = values[I.T]
+            if self.KEYS_TYPE == 'single-resolution':
+                values = values[I.T]
+            elif self.KEYS_TYPE == 'multi-resolution':
+                print('using running values')
+                values = self.running_values[I.T]
+                # import pdb;pdb.set_trace()
             #O = values[I.T]
         # print('see D shape')
         # import pdb;pdb.set_trace()        
@@ -336,6 +467,7 @@ class gpnn:
         if 'hardcoded' and False:
             values = torch.tile(keys,(100,1,1,1));
             print('hardcoding values')
+        # import pdb;pdb.set_trace()
         values = values.reshape(queries.shape[0],values.shape[0]//queries.shape[0],*values.shape[1:])
         distances = D.reshape(queries.shape[0],D.shape[0]//queries.shape[0],1,1,1)
         if 'check' and False:
@@ -352,9 +484,11 @@ class gpnn:
         else:
             assert len(x_scaled.shape) == 4
             # import pdb;pdb.set_trace()
+            # import IPython;IPython.embed()
             y = torch.stack([combine_patches(v, patch_size, stride, x_scaled.shape[1:3]+(3,),as_np=False,
                                              divisor_strategy='distance-weighted',
                                              distances=d) for v,d in zip(values,distances)],dim=0)
+            
         if False:
             # y = torch.clamp(y + y_scaled,0,1)            
             y = (y + x_scaled); print('using laplacian pyramid')
@@ -369,6 +503,37 @@ class gpnn:
         if 1 in y.shape[1:3]:
             import pdb;pdb.set_trace()
         return y,I
+
+    def get_pca_feats(self,input,init=False):
+        if input.ndim > 2:
+            input = input.reshape(input.shape[0],-1).contiguous()
+        # import pdb;pdb.set_trace()
+        if init:
+            self.pca = PCA(self.N_PCA_COMPONENTS)
+            self.pca.fit(input)
+        input_proj = self.pca.transform(input)
+        input_proj = (input_proj).contiguous()    
+        print('USING PCA!!!!!!!!!')
+        return input_proj        
+    def get_feats(self,input,init=False):
+        '''
+        b,c,h,w = input.shape[0],3,7,7
+        from hog import gradient_histogram
+        return gradient_histogram(input.view(-1,3,7,7), 8).view(b,-1)
+        '''
+        if False and 'hog features':
+            from model.hog import gradient_histogram
+            input_hog = gradient_histogram(input, 10)
+            input_hog = input_hog.flatten(start_dim=-2,end_dim=-1)
+            return input_hog
+        if self.USE_PCA:
+            if init: assert (self.N_PCA_COMPONENTS) and (self.N_PCA_COMPONENTS > 0) 
+            # import pdb;pdb.set_trace()
+            return self.get_pca_feats(input,init=init)
+        if input.ndim > 2:
+            input = input.reshape(input.shape[0],-1).contiguous()        
+        return input
+        
 """
 def combine_patches_tensor(O, patch_size, stride, img_shape):
     
@@ -434,6 +599,7 @@ def compute_distances(queries, keys):
 
 
 def combine_patches(O, patch_size, stride, img_shape,as_np = False,use_divisor=True,divisor_strategy='uniform',distances=None):
+    # divisor_strategy='uniform';print(f'hardcoding divisor_strategy to {divisor_strategy}')
     # channels = 3
     channels = O.shape[1]
     O = O.permute(1, 0, 2, 3).unsqueeze(0)
