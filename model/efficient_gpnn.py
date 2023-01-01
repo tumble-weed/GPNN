@@ -4,7 +4,7 @@ import os
 from tqdm import tqdm
 import torch
 from torchvision.transforms import Resize as tv_resize
-
+tensor_to_numpy = lambda t:t.detach().cpu().numpy()
 
 sys.path.append('.')
 from eutils.image import extract_patches,  save_image, load_image, blur
@@ -36,13 +36,16 @@ def generate(reference_images,
         lvl_references = tv_resize(scale, antialias=True)(reference_images)
         lvl_output_shape = get_output_shape(original_image_shape, scale, aspect_ratio)
         synthesized_images = tv_resize(lvl_output_shape, antialias=True)(synthesized_images)
-
-        synthesized_images = replace_patches(synthesized_images, lvl_references, nn_module,
+        if i == 0:
+            synthesized_images += torch.randn_like(synthesized_images) * additive_noise_sigma
+        extra_dict = {}
+        synthesized_images,I = replace_patches(synthesized_images, lvl_references, nn_module,
                                              patch_size,
                                              stride,
                                              initial_level_num_iters if i == 0 else num_iters,
                                              keys_blur_factor=keys_blur_factor,
-                                             pbar=logger)
+                                             pbar=logger,
+                                             extra = extra_dict)
 
         if debug_dir:
             os.makedirs(debug_dir, exist_ok=True)
@@ -50,10 +53,13 @@ def generate(reference_images,
             save_image(synthesized_images, os.path.join(debug_dir, f'outputs-lvl-{logger.lvl}.png'), normalize=True)
 
     logger.pbar.close()
-    return synthesized_images
+    # import pdb;pdb.set_trace()
+    if I.ndim == 1:
+        I = I.unsqueeze(-1)
+    return synthesized_images,I
 
 
-def replace_patches(queries_image, values_image, nn_module, patch_size, stride, num_iters, keys_blur_factor=1, pbar=None):
+def replace_patches(queries_image, values_image, nn_module, patch_size, stride, num_iters, keys_blur_factor=1, pbar=None,extra = {}):
     """
     Repeats n_steps iterations of repalcing the patches in "queries_image" by thier nearest neighbors from "values_image".
     The NN matrix is calculated with "keys" wich are a possibly blurred version of the patches from "values_image"
@@ -70,15 +76,32 @@ def replace_patches(queries_image, values_image, nn_module, patch_size, stride, 
     values = extract_patches(values_image, patch_size, stride)
     for i in range(num_iters):
         queries = extract_patches(queries_image, patch_size, stride)
+        # resizable to  1, 3, patch_size,patch_size
         # import pdb;pdb.set_trace()
-        NNs = nn_module.search(queries)
-
-        queries_image = combine_patches(values[NNs], patch_size, stride, queries_image.shape)
+        if True:
+            NNs,Ds = nn_module.search(queries)
+            queries_image = combine_patches(values[NNs], patch_size, stride, queries_image.shape)
+            # import pdb;pdb.set_trace()
+            D_image = combine_patches(Ds.unsqueeze(-1), 1, stride, 
+                                      (1,1,queries_image.shape[-2]- 2*(patch_size//2),queries_image.shape[-1] - 2*(patch_size//2)
+                                       )
+                                      )
+            extra['D_image'] = tensor_to_numpy(D_image)
+        else:
+            print('hardcoded reshape in combine_patches')
+            NNs,Ds = nn_module.search(queries)
+            from model.my_gpnn import combine_patches as combine_patches1
+            out_shape = queries_image.shape
+            queries_image1 = combine_patches1(values[NNs].reshape(-1,3,7,7), (patch_size,patch_size), stride, (out_shape[-2],out_shape[-1],out_shape[1]),divisor_strategy='uniform',distances=Ds)
+            # queries_image1.shape == (chan,h,w)
+            # required shape (1,chan,h,w)
+            queries_image1 = queries_image1.unsqueeze(0).permute(0,3,1,2).contiguous()
+            # import pdb;pdb.set_trace()
         if pbar:
             pbar.step()
             pbar.print()
-
-    return queries_image
+    # import pdb;pdb.set_trace()
+    return queries_image,NNs
 
 
 def get_output_shape(initial_image_shape, size, aspect_ratio):
@@ -100,10 +123,11 @@ def get_fist_initial_guess(reference_images, init_from, additive_noise_sigma):
     else:
         raise ValueError("Bad init mode", init_from)
     # import pdb;pdb.set_trace()
+    '''
     if additive_noise_sigma:
         
         synthesized_images += torch.randn_like(synthesized_images) * additive_noise_sigma
-
+    '''
     return synthesized_images
 
 
