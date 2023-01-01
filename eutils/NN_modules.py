@@ -76,17 +76,20 @@ class PytorchNN:
         return "PytorchNN(" + ("GPU" if self.use_gpu else "CPU") + f",alpha={self.alpha})"
 
 class PytorchNNLowMemory:
-    def __init__(self, batch_size=256*10, alpha=None, use_gpu=False):
+    def __init__(self, batch_size=256*1, alpha=None, use_gpu=False):
         self.use_gpu = use_gpu
         self.batch_size = batch_size
         self.alpha = alpha
         self.device = torch.device("cuda:0" if use_gpu else 'cpu')
 
     def init_index(self, index_vectors):
-        self.index_vectors = index_vectors.to(self.device)
+        print('using float16')
+        self.index_vectors = index_vectors.to(torch.float16).to(self.device)
         
     def search(self, queries):
-        return get_NN_indices_low_memory(queries.to(self.device), self.index_vectors, self.alpha, self.batch_size).cpu()
+        NNs,Ds = get_NN_indices_low_memory(queries.to(torch.float16).to(self.device), self.index_vectors, self.alpha, self.batch_size)
+        
+        return NNs.cpu(),Ds.cpu()
 
     def __str__(self):
         return "PytorchNNLowMem(" + ("GPU" if self.use_gpu else "CPU") + f",alpha={self.alpha})"

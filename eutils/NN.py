@@ -63,14 +63,19 @@ def get_NN_indices_low_memory(X, Y, alpha, b):
         normalizing_row = 1
 
     NNs = torch.zeros(X.shape[0], dtype=torch.long, device=X.device)
+    Ds = torch.zeros(X.shape[0], dtype=torch.float, device=X.device)
     n_batches = len(X) // b
     for i in range(n_batches):
         dists = efficient_compute_distances(X[i * b:(i + 1) * b], Y) / normalizing_row
-        NNs[i * b:(i + 1) * b] = dists.min(1)[1]
+        min_ = dists.min(1)
+        Ds[i * b:(i + 1) * b], NNs[i * b:(i + 1) * b] = min_[0],min_[1]
+        # import pdb;pdb.set_trace()
     if len(X) % b != 0:
         dists = efficient_compute_distances(X[n_batches * b:], Y) / normalizing_row
-        NNs[n_batches * b:] = dists.min(1)[1]
-    return NNs
+        # NNs[n_batches * b:] = dists.min(1)[1]
+        min_ = dists.min(1)
+        Ds[n_batches * b:], NNs[n_batches * b:] = min_[0],min_[1]
+    return NNs,Ds
 
 
 def get_col_mins_efficient(X, Y, b):
