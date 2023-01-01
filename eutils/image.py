@@ -67,6 +67,7 @@ def extract_patches(src_img, patch_size, stride):
     patches = F.unfold(src_img, kernel_size=patch_size, stride=stride) # shape (b, 3*p*p, N_patches)
     # import pdb;pdb.set_trace()
     patches = patches.squeeze(dim=0).permute((1, 0)).reshape(-1, channels * patch_size**2)
+    
     return patches
 
 
@@ -78,13 +79,14 @@ def combine_patches(patches, patch_size, stride, img_shape):
                       the same number of patches N_patches
     returns an image of shape img_shape
     """
+    # import pdb;pdb.set_trace()
     patches = patches.permute(1,0).unsqueeze(0)
-    combined = F.fold(patches, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
 
-    # normal fold matrix
-    input_ones = torch.ones(img_shape, dtype=patches.dtype, device=patches.device)
-    divisor = F.unfold(input_ones, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0))
-    divisor = F.fold(divisor, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
-
-    divisor[divisor == 0] = 1.0
-    return (combined / divisor).squeeze(dim=0).unsqueeze(0)
+    if 'mean':
+        combined = F.fold(patches, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
+        # normal fold matrix
+        input_ones = torch.ones(img_shape, dtype=patches.dtype, device=patches.device)
+        divisor = F.unfold(input_ones, kernel_size=patch_size, dilation=(1, 1), stride=stride, padding=(0, 0))        
+        divisor = F.fold(divisor, output_size=img_shape[-2:], kernel_size=patch_size, stride=stride)
+        divisor[divisor == 0] = 1.0
+        return (combined / divisor).squeeze(dim=0).unsqueeze(0)
